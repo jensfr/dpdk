@@ -137,6 +137,10 @@ struct vhost_virtqueue {
  #define VIRTIO_F_VERSION_1 32
 #endif
 
+#ifndef VIRTIO_F_VERSION_1_1
+ #define VIRTIO_F_VERSION_1_1 34
+#endif
+
 struct guest_page {
 	uint64_t guest_phys_addr;
 	uint64_t host_phys_addr;

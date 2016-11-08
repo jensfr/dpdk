@@ -58,6 +58,7 @@
 				(1ULL << VIRTIO_NET_F_GUEST_ANNOUNCE) | \
 				(VHOST_SUPPORTS_MQ)            | \
 				(1ULL << VIRTIO_F_VERSION_1)   | \
+				(1ULL << VIRTIO_F_VERSION_1_1) | \
 				(1ULL << VHOST_F_LOG_ALL)      | \
 				(1ULL << VHOST_USER_F_PROTOCOL_FEATURES) | \
 				(1ULL << VIRTIO_NET_F_HOST_TSO4) | \
