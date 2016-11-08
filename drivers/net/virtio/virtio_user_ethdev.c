@@ -239,6 +239,8 @@ static const char *valid_args[] = {
 	VIRTIO_USER_ARG_PATH,
 #define VIRTIO_USER_ARG_QUEUE_SIZE     "queue_size"
 	VIRTIO_USER_ARG_QUEUE_SIZE,
+#define VIRTIO_USER_ARG_VERSION_1_1     "version_1_1"
+	VIRTIO_USER_ARG_VERSION_1_1,
 	NULL
 };
 
@@ -342,6 +344,7 @@ virtio_user_pmd_probe(const char *name, const char *params)
 	char *path = NULL;
 	char *mac_addr = NULL;
 	int ret = -1;
+	uint64_t version_1_1 = 0;
 
 	if (!params || params[0] == '\0') {
 		PMD_INIT_LOG(ERR, "arg %s is mandatory for virtio_user",
@@ -406,6 +409,15 @@ virtio_user_pmd_probe(const char *name, const char *params)
 		cq = 1;
 	}
 
+	if (rte_kvargs_count(kvlist, VIRTIO_USER_ARG_VERSION_1_1) == 1) {
+		if (rte_kvargs_process(kvlist, VIRTIO_USER_ARG_VERSION_1_1,
+				       &get_integer_arg, &version_1_1) < 0) {
+			PMD_INIT_LOG(ERR, "error to parse %s",
+				     VIRTIO_USER_ARG_VERSION_1_1);
+			goto end;
+		}
+	}
+
 	if (queues > 1 && cq == 0) {
 		PMD_INIT_LOG(ERR, "multi-q requires ctrl-q");
 		goto end;
@@ -418,8 +430,8 @@ virtio_user_pmd_probe(const char *name, const char *params)
 	}
 
 	hw = eth_dev->data->dev_private;
-	if (virtio_user_dev_init(hw->virtio_user_dev, path, queues, cq,
-				 queue_size, mac_addr) < 0) {
+	if (virtio_user_dev_init(hw->virtio_user_dev, path, (int)queues, (int)cq,
+				 (int)queue_size, mac_addr, (int)version_1_1) < 0) {
 		PMD_INIT_LOG(ERR, "virtio_user_dev_init fails");
 		virtio_user_eth_dev_free(eth_dev);
 		goto end;

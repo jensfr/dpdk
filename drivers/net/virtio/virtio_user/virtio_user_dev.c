@@ -207,7 +207,7 @@ parse_mac(struct virtio_user_dev *dev, const char *mac)
 
 int
 virtio_user_dev_init(struct virtio_user_dev *dev, char *path, int queues,
-		     int cq, int queue_size, const char *mac)
+		     int cq, int queue_size, const char *mac, int version_1_1)
 {
 	snprintf(dev->path, PATH_MAX, "%s", path);
 	dev->max_queue_pairs = queues;
@@ -232,6 +232,12 @@ virtio_user_dev_init(struct virtio_user_dev *dev, char *path, int queues,
 		PMD_INIT_LOG(ERR, "get_features failed: %s", strerror(errno));
 		return -1;
 	}
+
+	if (version_1_1)
+		dev->features |= (1ull << VIRTIO_F_VERSION_1_1);
+	else
+		dev->features &= ~(1ull << VIRTIO_F_VERSION_1_1);
+
 	if (dev->mac_specified)
 		dev->features |= (1ull << VIRTIO_NET_F_MAC);
 
