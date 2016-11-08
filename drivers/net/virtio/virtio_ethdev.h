@@ -68,6 +68,7 @@
 	 1u << VIRTIO_NET_F_MRG_RXBUF	  |	\
 	 1u << VIRTIO_RING_F_INDIRECT_DESC |    \
 	 1ULL << VIRTIO_F_VERSION_1       |	\
+	 1ULL << VIRTIO_F_VERSION_1_1     |	\
 	 1ULL << VIRTIO_F_IOMMU_PLATFORM)
 
 /*
@@ -94,6 +95,8 @@ uint16_t virtio_recv_mergeable_pkts(void *rx_queue, struct rte_mbuf **rx_pkts,
 		uint16_t nb_pkts);
 
 uint16_t virtio_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts,
+		uint16_t nb_pkts);
+uint16_t virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts,
 		uint16_t nb_pkts);
 
 uint16_t virtio_recv_pkts_vec(void *rx_queue, struct rte_mbuf **rx_pkts,
