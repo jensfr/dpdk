@@ -88,6 +88,7 @@ struct vhost_virtqueue {
 	struct vring_desc	*desc;
 	struct vring_avail	*avail;
 	struct vring_used	*used;
+	struct desc		*desc_1_1;
 	uint32_t		size;
 
 	uint16_t		last_avail_idx;
