@@ -138,6 +138,9 @@ struct vhost_virtqueue {
 #ifndef VIRTIO_F_VERSION_1
  #define VIRTIO_F_VERSION_1 32
 #endif
+#ifndef VIRTIO_F_VERSION_1_1
+ #define VIRTIO_F_VERSION_1_1 34
+#endif
 
 #define VHOST_USER_F_PROTOCOL_FEATURES	30
 
@@ -148,6 +151,7 @@ struct vhost_virtqueue {
 				(1ULL << VIRTIO_NET_F_GUEST_ANNOUNCE) | \
 				(1ULL << VIRTIO_NET_F_MQ)      | \
 				(1ULL << VIRTIO_F_VERSION_1)   | \
+				(1ULL << VIRTIO_F_VERSION_1_1) | \
 				(1ULL << VHOST_F_LOG_ALL)      | \
 				(1ULL << VHOST_USER_F_PROTOCOL_FEATURES) | \
 				(1ULL << VIRTIO_NET_F_HOST_TSO4) | \
