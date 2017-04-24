@@ -55,6 +55,7 @@ SRCS-y += macswap.c
 SRCS-y += flowgen.c
 SRCS-y += rxonly.c
 SRCS-y += txonly.c
+SRCS-y += s-txonly.c
 SRCS-y += csumonly.c
 SRCS-y += icmpecho.c
 SRCS-$(CONFIG_RTE_LIBRTE_IEEE1588) += ieee1588fwd.c
