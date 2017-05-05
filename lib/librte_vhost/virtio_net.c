@@ -1192,9 +1192,6 @@ dequeue_desc(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	 */
 	if (likely((desc->len == dev->vhost_hlen) &&
 		   (desc->flags & VRING_DESC_F_NEXT) != 0)) {
-		rte_smp_wmb();
-		desc->flags = 0;
-
 		desc = &descs[(head_idx++) & (vq->size - 1)];
 		if (unlikely(desc->flags & VRING_DESC_F_INDIRECT))
 			return -1;
@@ -1255,8 +1252,6 @@ dequeue_desc(struct virtio_net *dev, struct vhost_virtqueue *vq,
 			if ((desc->flags & VRING_DESC_F_NEXT) == 0)
 				break;
 
-			rte_smp_wmb();
-			desc->flags = 0;
 			desc = &descs[(head_idx++) & (vq->size - 1)];
 			if (unlikely(desc->flags & VRING_DESC_F_INDIRECT))
 				return -1;
@@ -1295,8 +1290,6 @@ dequeue_desc(struct virtio_net *dev, struct vhost_virtqueue *vq,
 			mbuf_avail  = cur->buf_len - RTE_PKTMBUF_HEADROOM;
 		}
 	}
-	rte_smp_wmb();
-	desc->flags = 0;
 
 	prev->data_len = mbuf_offset;
 	m->pkt_len    += mbuf_offset;
@@ -1317,7 +1310,9 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	uint16_t i;
 	uint16_t idx;
 	struct vring_desc_1_1 *desc = vq->desc_1_1;
+	uint16_t head_idx = vq->last_used_idx;
 
+	count = RTE_MIN(MAX_PKT_BURST, count);
 	for (i = 0; i < count; i++) {
 		idx = vq->last_used_idx & (vq->size - 1);
 		if (!(desc[idx].flags & DESC_HW))
@@ -1331,6 +1326,14 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 		}
 
 		dequeue_desc(dev, vq, mbuf_pool, pkts[i], desc);
+	}
+
+	if (likely(i)) {
+		for (idx = 1; idx < (uint16_t)(vq->last_used_idx - head_idx); idx++) {
+			desc[(idx + head_idx) & (vq->size - 1)].flags = 0;
+		}
+		rte_smp_wmb();
+		desc[head_idx & (vq->size - 1)].flags = 0;
 	}
 
 	return i;

@@ -89,7 +89,7 @@ virtio_xmit_cleanup(struct virtqueue *vq)
 }
 
 static inline void
-virtio_xmit(struct virtnet_tx *txvq, struct rte_mbuf *mbuf)
+virtio_xmit(struct virtnet_tx *txvq, struct rte_mbuf *mbuf, int first_mbuf)
 {
 	struct virtio_tx_region *txr = txvq->virtio_net_hdr_mz->addr;
 	struct virtqueue *vq = txvq->vq;
@@ -105,6 +105,8 @@ virtio_xmit(struct virtnet_tx *txvq, struct rte_mbuf *mbuf)
 			  RTE_PTR_DIFF(&txr[idx].tx_hdr, txr);
 	desc[idx].len   = vq->hw->vtnet_hdr_size;
 	desc[idx].flags = VRING_DESC_F_NEXT;
+	if (!first_mbuf)
+		desc[idx].flags |= DESC_HW;
 
 	do {
 		idx = (vq->vq_avail_idx++) & (vq->vq_nentries - 1);
@@ -115,12 +117,6 @@ virtio_xmit(struct virtnet_tx *txvq, struct rte_mbuf *mbuf)
 
 	desc[idx].flags &= ~VRING_DESC_F_NEXT;
 
-	/*
-	 * update the head last, so that when the host saw such flag
-	 * is set, it means all others in the same chain is also set
-	 */
-	rte_smp_wmb();
-	desc[head_idx].flags |= DESC_HW;
 }
 
 uint16_t
@@ -129,6 +125,7 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 	struct virtnet_tx *txvq = tx_queue;
 	struct virtqueue *vq = txvq->vq;
 	uint16_t i;
+	uint16_t head_idx = vq->vq_avail_idx;
 
 	if (unlikely(nb_pkts < 1))
 		return nb_pkts;
@@ -148,8 +145,13 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 			}
 		}
 
-		virtio_xmit(txvq, txm);
+		virtio_xmit(txvq, txm, i == 0);
 		txvq->stats.bytes += txm->pkt_len;
+	}
+
+	if (likely(i)) {
+		rte_smp_wmb();
+		vq->vq_ring.desc_1_1[head_idx & (vq->vq_nentries - 1)].flags |= DESC_HW;
 	}
 
 	txvq->stats.packets += i;
