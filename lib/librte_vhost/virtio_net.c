@@ -1156,10 +1156,10 @@ mbuf_is_consumed(struct rte_mbuf *m)
 	return true;
 }
 
-static inline uint16_t
+static inline uint16_t __attribute__((always_inline))
 dequeue_desc(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	     struct rte_mempool *mbuf_pool, struct rte_mbuf *m,
-	     struct vring_desc_1_1 *descs)
+	     struct vring_desc_1_1 *descs, uint16_t *desc_idx)
 {
 	struct vring_desc_1_1 *desc;
 	uint64_t desc_addr;
@@ -1168,7 +1168,7 @@ dequeue_desc(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	uint32_t cpy_len;
 	struct rte_mbuf *cur = m, *prev = m;
 	struct virtio_net_hdr *hdr = NULL;
-	uint16_t head_idx = vq->last_used_idx;
+	uint16_t head_idx = *desc_idx;
 
 	desc = &descs[(head_idx++) & (vq->size - 1)];
 	if (unlikely((desc->len < dev->vhost_hlen)) ||
@@ -1296,7 +1296,7 @@ dequeue_desc(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	if (hdr)
 		vhost_dequeue_offload(hdr, m);
 
-	vq->last_used_idx = head_idx;
+	*desc_idx = head_idx;
 
 	return 0;
 }
@@ -1310,11 +1310,32 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	uint16_t idx;
 	struct vring_desc_1_1 *desc = vq->desc_1_1;
 	uint16_t head_idx = vq->last_used_idx;
+	struct vring_desc_1_1 desc_cached[64];
+	uint16_t desc_idx = 0;
+
+	idx = vq->last_used_idx & (vq->size - 1);
+	if (!(desc[idx].flags & DESC_HW))
+		return 0;
 
 	count = RTE_MIN(MAX_PKT_BURST, count);
+
+	{
+		uint16_t size = vq->size - idx;
+		if (size >= 64)
+			rte_memcpy(&desc_cached[0],    &desc[idx], 64 * sizeof(struct vring_desc_1_1));
+		else {
+			rte_memcpy(&desc_cached[0],    &desc[idx], size * sizeof(struct vring_desc_1_1));
+			rte_memcpy(&desc_cached[size], &desc[0],   (64 - size) * sizeof(struct vring_desc_1_1));
+		}
+	}
+
+	//for (i = 0; i < 64; i++) {
+	//	idx = (vq->last_used_idx + i) & (vq->size - 1);
+	//	desc_cached[i] = desc[idx];
+	//}
+
 	for (i = 0; i < count; i++) {
-		idx = vq->last_used_idx & (vq->size - 1);
-		if (!(desc[idx].flags & DESC_HW))
+		if (!(desc_cached[desc_idx].flags & DESC_HW))
 			break;
 
 		pkts[i] = rte_pktmbuf_alloc(mbuf_pool);
@@ -1324,9 +1345,10 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 			break;
 		}
 
-		dequeue_desc(dev, vq, mbuf_pool, pkts[i], desc);
+		dequeue_desc(dev, vq, mbuf_pool, pkts[i], desc_cached, &desc_idx);
 	}
 
+	vq->last_used_idx += desc_idx;
 	if (likely(i)) {
 		for (idx = 1; idx < (uint16_t)(vq->last_used_idx - head_idx); idx++) {
 			desc[(idx + head_idx) & (vq->size - 1)].flags = 0;
