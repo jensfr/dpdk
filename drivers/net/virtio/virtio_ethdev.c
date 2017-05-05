@@ -298,19 +298,21 @@ virtio_init_vring(struct virtqueue *vq)
 
 	PMD_INIT_FUNC_TRACE();
 
-	/*
-	 * Reinitialise since virtio port might have been stopped and restarted
-	 */
 	memset(ring_mem, 0, vq->vq_ring_size);
-	vring_init(vr, size, ring_mem, VIRTIO_PCI_VRING_ALIGN);
-	vq->vq_used_cons_idx = 0;
-	vq->vq_desc_head_idx = 0;
-	vq->vq_avail_idx = 0;
-	vq->vq_desc_tail_idx = (uint16_t)(vq->vq_nentries - 1);
+	vring_init(vq->hw, vr, size, ring_mem, VIRTIO_PCI_VRING_ALIGN);
+
 	vq->vq_free_cnt = vq->vq_nentries;
 	memset(vq->vq_descx, 0, sizeof(struct vq_desc_extra) * vq->vq_nentries);
+	vq->vq_used_cons_idx = 0;
+	vq->vq_avail_idx     = 0;
+	if (vtpci_packed_queue(vq->hw)) {
+		vring_desc_init_packed(vr, size);
+	} else {
+		vq->vq_desc_head_idx = 0;
+		vq->vq_desc_tail_idx = (uint16_t)(vq->vq_nentries - 1);
 
-	vring_desc_init(vr->desc, size);
+		vring_desc_init(vr->desc, size);
+	}
 
 	/*
 	 * Disable device(host) interrupting guest
@@ -385,7 +387,7 @@ virtio_init_queue(struct rte_eth_dev *dev, uint16_t vtpci_queue_idx)
 	/*
 	 * Reserve a memzone for vring elements
 	 */
-	size = vring_size(vq_size, VIRTIO_PCI_VRING_ALIGN);
+	size = vring_size(hw, vq_size, VIRTIO_PCI_VRING_ALIGN);
 	vq->vq_ring_size = RTE_ALIGN_CEIL(size, VIRTIO_PCI_VRING_ALIGN);
 	PMD_INIT_LOG(DEBUG, "vring_size: %d, rounded_vring_size: %d",
 		     size, vq->vq_ring_size);
