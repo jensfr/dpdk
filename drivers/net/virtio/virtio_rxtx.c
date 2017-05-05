@@ -216,76 +216,16 @@ virtqueue_enqueue_recv_refill(struct virtqueue *vq, struct rte_mbuf *cookie)
 	return 0;
 }
 
-/* When doing TSO, the IP length is not included in the pseudo header
- * checksum of the packet given to the PMD, but for virtio it is
- * expected.
- */
-static void
-virtio_tso_fix_cksum(struct rte_mbuf *m)
-{
-	/* common case: header is not fragmented */
-	if (likely(rte_pktmbuf_data_len(m) >= m->l2_len + m->l3_len +
-			m->l4_len)) {
-		struct ipv4_hdr *iph;
-		struct ipv6_hdr *ip6h;
-		struct tcp_hdr *th;
-		uint16_t prev_cksum, new_cksum, ip_len, ip_paylen;
-		uint32_t tmp;
-
-		iph = rte_pktmbuf_mtod_offset(m, struct ipv4_hdr *, m->l2_len);
-		th = RTE_PTR_ADD(iph, m->l3_len);
-		if ((iph->version_ihl >> 4) == 4) {
-			iph->hdr_checksum = 0;
-			iph->hdr_checksum = rte_ipv4_cksum(iph);
-			ip_len = iph->total_length;
-			ip_paylen = rte_cpu_to_be_16(rte_be_to_cpu_16(ip_len) -
-				m->l3_len);
-		} else {
-			ip6h = (struct ipv6_hdr *)iph;
-			ip_paylen = ip6h->payload_len;
-		}
-
-		/* calculate the new phdr checksum not including ip_paylen */
-		prev_cksum = th->cksum;
-		tmp = prev_cksum;
-		tmp += ip_paylen;
-		tmp = (tmp & 0xffff) + (tmp >> 16);
-		new_cksum = tmp;
-
-		/* replace it in the packet */
-		th->cksum = new_cksum;
-	}
-}
-
-static inline int
-tx_offload_enabled(struct virtio_hw *hw)
-{
-	return vtpci_with_feature(hw, VIRTIO_NET_F_CSUM) ||
-		vtpci_with_feature(hw, VIRTIO_NET_F_HOST_TSO4) ||
-		vtpci_with_feature(hw, VIRTIO_NET_F_HOST_TSO6);
-}
-
-/* avoid write operation when necessary, to lessen cache issues */
-#define ASSIGN_UNLESS_EQUAL(var, val) do {	\
-	if ((var) != (val))			\
-		(var) = (val);			\
-} while (0)
-
 static inline void
 virtqueue_enqueue_xmit(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
-		       uint16_t needed, int use_indirect, int can_push)
+		       uint16_t needed)
 {
 	struct virtio_tx_region *txr = txvq->virtio_net_hdr_mz->addr;
 	struct vq_desc_extra *dxp;
 	struct virtqueue *vq = txvq->vq;
 	struct vring_desc *start_dp;
-	uint16_t seg_num = cookie->nb_segs;
 	uint16_t head_idx, idx;
-	uint16_t head_size = vq->hw->vtnet_hdr_size;
-	struct virtio_net_hdr *hdr;
-	int offload;
 
-	offload = tx_offload_enabled(vq->hw);
 	head_idx = vq->vq_desc_head_idx;
 	idx = head_idx;
 	dxp = &vq->vq_descx[idx];
@@ -294,95 +234,15 @@ virtqueue_enqueue_xmit(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 
 	start_dp = vq->vq_ring.desc;
 
-	if (can_push) {
-		/* prepend cannot fail, checked by caller */
-		hdr = (struct virtio_net_hdr *)
-			rte_pktmbuf_prepend(cookie, head_size);
-		/* rte_pktmbuf_prepend() counts the hdr size to the pkt length,
-		 * which is wrong. Below subtract restores correct pkt size.
-		 */
-		cookie->pkt_len -= head_size;
-		/* if offload disabled, it is not zeroed below, do it now */
-		if (offload == 0) {
-			ASSIGN_UNLESS_EQUAL(hdr->csum_start, 0);
-			ASSIGN_UNLESS_EQUAL(hdr->csum_offset, 0);
-			ASSIGN_UNLESS_EQUAL(hdr->flags, 0);
-			ASSIGN_UNLESS_EQUAL(hdr->gso_type, 0);
-			ASSIGN_UNLESS_EQUAL(hdr->gso_size, 0);
-			ASSIGN_UNLESS_EQUAL(hdr->hdr_len, 0);
-		}
-	} else if (use_indirect) {
-		/* setup tx ring slot to point to indirect
-		 * descriptor list stored in reserved region.
-		 *
-		 * the first slot in indirect ring is already preset
-		 * to point to the header in reserved region
-		 */
-		start_dp[idx].addr  = txvq->virtio_net_hdr_mem +
-			RTE_PTR_DIFF(&txr[idx].tx_indir, txr);
-		start_dp[idx].len   = (seg_num + 1) * sizeof(struct vring_desc);
-		start_dp[idx].flags = VRING_DESC_F_INDIRECT;
-		hdr = (struct virtio_net_hdr *)&txr[idx].tx_hdr;
+       /* setup first tx ring slot to point to header
+        * stored in reserved region.
+        */
+       start_dp[idx].addr  = txvq->virtio_net_hdr_mem +
+       	RTE_PTR_DIFF(&txr[idx].tx_hdr, txr);
+       start_dp[idx].len   = vq->hw->vtnet_hdr_size;
+       start_dp[idx].flags = VRING_DESC_F_NEXT;
 
-		/* loop below will fill in rest of the indirect elements */
-		start_dp = txr[idx].tx_indir;
-		idx = 1;
-	} else {
-		/* setup first tx ring slot to point to header
-		 * stored in reserved region.
-		 */
-		start_dp[idx].addr  = txvq->virtio_net_hdr_mem +
-			RTE_PTR_DIFF(&txr[idx].tx_hdr, txr);
-		start_dp[idx].len   = vq->hw->vtnet_hdr_size;
-		start_dp[idx].flags = VRING_DESC_F_NEXT;
-		hdr = (struct virtio_net_hdr *)&txr[idx].tx_hdr;
-
-		idx = start_dp[idx].next;
-	}
-
-	/* Checksum Offload / TSO */
-	if (offload) {
-		if (cookie->ol_flags & PKT_TX_TCP_SEG)
-			cookie->ol_flags |= PKT_TX_TCP_CKSUM;
-
-		switch (cookie->ol_flags & PKT_TX_L4_MASK) {
-		case PKT_TX_UDP_CKSUM:
-			hdr->csum_start = cookie->l2_len + cookie->l3_len;
-			hdr->csum_offset = offsetof(struct udp_hdr,
-				dgram_cksum);
-			hdr->flags = VIRTIO_NET_HDR_F_NEEDS_CSUM;
-			break;
-
-		case PKT_TX_TCP_CKSUM:
-			hdr->csum_start = cookie->l2_len + cookie->l3_len;
-			hdr->csum_offset = offsetof(struct tcp_hdr, cksum);
-			hdr->flags = VIRTIO_NET_HDR_F_NEEDS_CSUM;
-			break;
-
-		default:
-			ASSIGN_UNLESS_EQUAL(hdr->csum_start, 0);
-			ASSIGN_UNLESS_EQUAL(hdr->csum_offset, 0);
-			ASSIGN_UNLESS_EQUAL(hdr->flags, 0);
-			break;
-		}
-
-		/* TCP Segmentation Offload */
-		if (cookie->ol_flags & PKT_TX_TCP_SEG) {
-			virtio_tso_fix_cksum(cookie);
-			hdr->gso_type = (cookie->ol_flags & PKT_TX_IPV6) ?
-				VIRTIO_NET_HDR_GSO_TCPV6 :
-				VIRTIO_NET_HDR_GSO_TCPV4;
-			hdr->gso_size = cookie->tso_segsz;
-			hdr->hdr_len =
-				cookie->l2_len +
-				cookie->l3_len +
-				cookie->l4_len;
-		} else {
-			ASSIGN_UNLESS_EQUAL(hdr->gso_type, 0);
-			ASSIGN_UNLESS_EQUAL(hdr->gso_size, 0);
-			ASSIGN_UNLESS_EQUAL(hdr->hdr_len, 0);
-		}
-	}
+       idx = start_dp[idx].next;
 
 	do {
 		start_dp[idx].addr  = VIRTIO_MBUF_DATA_DMA_ADDR(cookie, vq);
@@ -390,9 +250,6 @@ virtqueue_enqueue_xmit(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 		start_dp[idx].flags = cookie->next ? VRING_DESC_F_NEXT : 0;
 		idx = start_dp[idx].next;
 	} while ((cookie = cookie->next) != NULL);
-
-	if (use_indirect)
-		idx = vq->vq_ring.desc[head_idx].next;
 
 	vq->vq_desc_head_idx = idx;
 	if (vq->vq_desc_head_idx == VQ_RING_DESC_CHAIN_END)
@@ -1015,9 +872,7 @@ virtio_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts)
 	struct virtnet_tx *txvq = tx_queue;
 	struct virtqueue *vq = txvq->vq;
 	struct virtio_hw *hw = vq->hw;
-	uint16_t hdr_size = hw->vtnet_hdr_size;
 	uint16_t nb_used, nb_tx = 0;
-	int error;
 
 	if (unlikely(hw->started == 0))
 		return nb_tx;
@@ -1034,37 +889,14 @@ virtio_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts)
 
 	for (nb_tx = 0; nb_tx < nb_pkts; nb_tx++) {
 		struct rte_mbuf *txm = tx_pkts[nb_tx];
-		int can_push = 0, use_indirect = 0, slots, need;
-
-		/* Do VLAN tag insertion */
-		if (unlikely(txm->ol_flags & PKT_TX_VLAN_PKT)) {
-			error = rte_vlan_insert(&txm);
-			if (unlikely(error)) {
-				rte_pktmbuf_free(txm);
-				continue;
-			}
-		}
-
-		/* optimize ring usage */
-		if ((vtpci_with_feature(hw, VIRTIO_F_ANY_LAYOUT) ||
-		      vtpci_with_feature(hw, VIRTIO_F_VERSION_1)) &&
-		    rte_mbuf_refcnt_read(txm) == 1 &&
-		    RTE_MBUF_DIRECT(txm) &&
-		    txm->nb_segs == 1 &&
-		    rte_pktmbuf_headroom(txm) >= hdr_size &&
-		    rte_is_aligned(rte_pktmbuf_mtod(txm, char *),
-				   __alignof__(struct virtio_net_hdr_mrg_rxbuf)))
-			can_push = 1;
-		else if (vtpci_with_feature(hw, VIRTIO_RING_F_INDIRECT_DESC) &&
-			 txm->nb_segs < VIRTIO_MAX_TX_INDIRECT)
-			use_indirect = 1;
+		int slots, need;
 
 		/* How many main ring entries are needed to this Tx?
 		 * any_layout => number of segments
 		 * indirect   => 1
 		 * default    => number of segments + 1
 		 */
-		slots = use_indirect ? 1 : (txm->nb_segs + !can_push);
+		slots =txm->nb_segs + 1;
 		need = slots - vq->vq_free_cnt;
 
 		/* Positive value indicates it need free vring descriptors */
@@ -1083,7 +915,7 @@ virtio_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts)
 		}
 
 		/* Enqueue Packet buffers */
-		virtqueue_enqueue_xmit(txvq, txm, slots, use_indirect, can_push);
+		virtqueue_enqueue_xmit(txvq, txm, slots);
 
 		txvq->stats.bytes += txm->pkt_len;
 		virtio_update_packet_stats(&txvq->stats, txm);
