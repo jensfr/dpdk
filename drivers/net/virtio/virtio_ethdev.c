@@ -630,7 +630,8 @@ virtio_dev_close(struct rte_eth_dev *dev)
 	}
 
 	vtpci_reset(hw);
-	virtio_dev_free_mbufs(dev);
+	if (!vtpci_version_1_1(hw))
+		virtio_dev_free_mbufs(dev);
 	virtio_free_queues(hw);
 }
 
@@ -1294,7 +1295,11 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 		eth_dev->rx_pkt_burst = &virtio_recv_pkts;
 	}
 
-	if (hw->use_simple_tx) {
+	if (vtpci_version_1_1(hw)) {
+		PMD_INIT_LOG(INFO, "virtio: using virtio 1.1 Tx path on port %u",
+			eth_dev->data->port_id);
+		eth_dev->tx_pkt_burst = virtio_xmit_pkts_1_1;
+	} else if (hw->use_simple_tx) {
 		PMD_INIT_LOG(INFO, "virtio: using simple Tx path on port %u",
 			eth_dev->data->port_id);
 		eth_dev->tx_pkt_burst = virtio_xmit_pkts_simple;
