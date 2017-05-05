@@ -536,6 +536,9 @@ rte_vhost_enable_guest_notification(int vid, uint16_t queue_id, int enable)
 {
 	struct virtio_net *dev = get_device(vid);
 
+	if (dev->features & (1ULL << VIRTIO_F_PACKED))
+		return 0;
+
 	if (dev == NULL)
 		return -1;
 
@@ -544,6 +547,7 @@ rte_vhost_enable_guest_notification(int vid, uint16_t queue_id, int enable)
 			"guest notification isn't supported.\n");
 		return -1;
 	}
+
 
 	dev->virtqueue[queue_id]->used->flags = VRING_USED_F_NO_NOTIFY;
 	return 0;
