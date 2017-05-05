@@ -241,8 +241,12 @@ struct virtio_net_hdr_mrg_rxbuf {
 #define VIRTIO_MAX_TX_INDIRECT 8
 struct virtio_tx_region {
 	struct virtio_net_hdr_mrg_rxbuf tx_hdr;
-	struct vring_desc tx_indir[VIRTIO_MAX_TX_INDIRECT]
-			   __attribute__((__aligned__(16)));
+	union {
+		struct vring_desc tx_indir[VIRTIO_MAX_TX_INDIRECT]
+			__attribute__((__aligned__(16)));
+		struct vring_desc_packed tx_indir_pq[VIRTIO_MAX_TX_INDIRECT]
+			__attribute__((__aligned__(16)));
+	};
 };
 
 static inline uint16_t
@@ -358,6 +362,15 @@ static inline int
 virtqueue_kick_prepare(struct virtqueue *vq)
 {
 	return !(vq->vq_ring.used->flags & VRING_USED_F_NO_NOTIFY);
+}
+
+static inline int
+virtqueue_kick_prepare_packed(struct virtqueue *vq)
+{
+	uint16_t flags;
+
+	flags = vq->vq_ring.device_event->desc_event_flags & RING_EVENT_FLAGS_DESC;
+	return (flags != RING_EVENT_FLAGS_DISABLE);
 }
 
 static inline void
