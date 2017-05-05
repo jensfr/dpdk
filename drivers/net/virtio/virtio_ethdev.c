@@ -339,12 +339,12 @@ virtio_init_vring(struct virtqueue *vq)
 		vq->vq_desc_tail_idx = (uint16_t)(vq->vq_nentries - 1);
 
 		vring_desc_init(vr->desc, size);
-	}
 
-	/*
-	 * Disable device(host) interrupting guest
-	 */
-	virtqueue_disable_intr(vq);
+		/*
+		 * Disable device(host) interrupting guest
+		 */
+		virtqueue_disable_intr(vq);
+	}
 }
 
 static int
@@ -630,7 +630,8 @@ virtio_dev_close(struct rte_eth_dev *dev)
 	}
 
 	vtpci_reset(hw);
-	virtio_dev_free_mbufs(dev);
+	if (!vtpci_version_1_1(hw))
+		virtio_dev_free_mbufs(dev);
 	virtio_free_queues(hw);
 }
 
@@ -1629,6 +1630,12 @@ eth_virtio_dev_init(struct rte_eth_dev *eth_dev)
 	ret = virtio_init_device(eth_dev, VIRTIO_PMD_DEFAULT_GUEST_FEATURES);
 	if (ret < 0)
 		goto out;
+
+	/* FIXME: as second process? */
+	if (vtpci_version_1_1(hw))
+		eth_dev->tx_pkt_burst = &virtio_xmit_pkts_1_1;
+	else
+		eth_dev->tx_pkt_burst = &virtio_xmit_pkts;
 
 	/* Setup interrupt callback  */
 	if (eth_dev->data->dev_flags & RTE_ETH_DEV_INTR_LSC)
