@@ -541,6 +541,10 @@ virtio_dev_tx_queue_setup_finish(struct rte_eth_dev *dev,
 
 	PMD_INIT_FUNC_TRACE();
 
+	if (vtpci_packed_queue(hw)) {
+		vq->vq_ring.avail_wrap_counter = 1;
+	}
+
 	if (hw->use_simple_tx) {
 		for (desc_idx = 0; desc_idx < mid_idx; desc_idx++) {
 			vq->vq_ring.avail->ring[desc_idx] =
@@ -561,7 +565,8 @@ virtio_dev_tx_queue_setup_finish(struct rte_eth_dev *dev,
 			vq->vq_ring.avail->ring[desc_idx] = desc_idx;
 	}
 
-	VIRTQUEUE_DUMP(vq);
+	if (!vtpci_packed_queue(hw))
+		VIRTQUEUE_DUMP(vq);
 
 	return 0;
 }
