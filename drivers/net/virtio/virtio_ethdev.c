@@ -383,6 +383,8 @@ virtio_init_queue(struct rte_eth_dev *dev, uint16_t vtpci_queue_idx)
 	vq->hw = hw;
 	vq->vq_queue_index = vtpci_queue_idx;
 	vq->vq_nentries = vq_size;
+	if (vtpci_packed_queue(hw))
+		vq->vq_ring.avail_wrap_counter = 1;
 
 	/*
 	 * Reserve a memzone for vring elements
@@ -1324,7 +1326,11 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 		eth_dev->rx_pkt_burst = &virtio_recv_pkts;
 	}
 
-	if (hw->use_simple_tx) {
+	if (vtpci_packed_queue(hw)) {
+		PMD_INIT_LOG(INFO, "virtio: using virtio 1.1 Tx path on port %u",
+			eth_dev->data->port_id);
+		eth_dev->tx_pkt_burst = virtio_xmit_pkts_packed;
+	} else if (hw->use_simple_tx) {
 		PMD_INIT_LOG(INFO, "virtio: using simple Tx path on port %u",
 			eth_dev->data->port_id);
 		eth_dev->tx_pkt_burst = virtio_xmit_pkts_simple;
