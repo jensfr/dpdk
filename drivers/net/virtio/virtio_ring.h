@@ -38,6 +38,8 @@
 
 #include <rte_common.h>
 
+#include "virtio-1.1.h"
+
 /* This marks a buffer as continuing via the next field. */
 #define VRING_DESC_F_NEXT       1
 /* This marks a buffer as write-only (otherwise read-only). */
@@ -88,6 +90,7 @@ struct vring {
 	struct vring_desc  *desc;
 	struct vring_avail *avail;
 	struct vring_used  *used;
+	struct vring_desc_1_1 *desc_1_1;
 };
 
 /* The standard layout for the ring is a continuous chunk of memory which
@@ -124,9 +127,12 @@ struct vring {
 #define vring_avail_event(vr) (*(uint16_t *)&(vr)->used->ring[(vr)->num])
 
 static inline size_t
-vring_size(unsigned int num, unsigned long align)
+vring_size(struct virtio_hw *hw, unsigned int num, unsigned long align)
 {
 	size_t size;
+
+	if (vtpci_version_1_1(hw))
+		return num * sizeof(struct vring_desc_1_1);
 
 	size = num * sizeof(struct vring_desc);
 	size += sizeof(struct vring_avail) + (num * sizeof(uint16_t));
@@ -137,10 +143,15 @@ vring_size(unsigned int num, unsigned long align)
 }
 
 static inline void
-vring_init(struct vring *vr, unsigned int num, uint8_t *p,
+vring_init(struct virtio_hw *hw, struct vring *vr, unsigned int num, uint8_t *p,
 	unsigned long align)
 {
 	vr->num = num;
+	if (vtpci_version_1_1(hw)) {
+		vr->desc_1_1 = (struct vring_desc_1_1 *)p;
+		return;
+	}
+
 	vr->desc = (struct vring_desc *) p;
 	vr->avail = (struct vring_avail *) (p +
 		num * sizeof(struct vring_desc));

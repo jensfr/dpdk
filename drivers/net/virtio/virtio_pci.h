@@ -141,6 +141,7 @@ struct virtnet_ctl;
 
 #define VIRTIO_F_VERSION_1		32
 #define VIRTIO_F_IOMMU_PLATFORM	33
+#define VIRTIO_F_VERSION_1_1		34
 
 /*
  * Some VirtIO feature bits (currently bits 28 through 31) are
@@ -318,6 +319,12 @@ static inline int
 vtpci_with_feature(struct virtio_hw *hw, uint64_t bit)
 {
 	return (hw->guest_features & (1ULL << bit)) != 0;
+}
+
+static inline int
+vtpci_version_1_1(struct virtio_hw *hw)
+{
+	return vtpci_with_feature(hw, VIRTIO_F_VERSION_1_1);
 }
 
 /*
