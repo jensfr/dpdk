@@ -265,6 +265,16 @@ struct virtio_tx_region {
 			   __attribute__((__aligned__(16)));
 };
 
+static inline void
+vring_desc_init_1_1(struct vring *vr, int n)
+{
+	int i;
+	for (i = 0; i < n; i++) {
+		struct vring_desc_1_1 *desc = &vr->desc_1_1[i];
+		desc->index = i;
+	}
+}
+
 /* Chain all the descriptors in the ring with an END */
 static inline void
 vring_desc_init(struct vring_desc *dp, uint16_t n)
