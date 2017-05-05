@@ -97,6 +97,7 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 	struct vring_desc_1_1 *desc = vq->vq_ring.desc_1_1;
 	uint16_t idx;
 	struct vq_desc_extra *dxp;
+	uint16_t head_idx = vq->vq_avail_idx;
 
 	if (unlikely(nb_pkts < 1))
 		return nb_pkts;
@@ -145,6 +146,11 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 		} while ((txm = txm->next) != NULL);
 
 		desc[idx].flags &= ~VRING_DESC_F_NEXT;
+	}
+
+	if (likely(i)) {
+		rte_smp_wmb();
+		vq->vq_ring.desc_1_1[head_idx & (vq->vq_nentries - 1)].flags |= DESC_HW;
 	}
 
 	txvq->stats.packets += i;
