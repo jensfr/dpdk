@@ -86,7 +86,7 @@ struct vring_packed {
 
 struct vring {
 	unsigned int num;
-	struct vring_desc  *desc;
+	struct vring_desc *desc;
 	struct vring_avail *avail;
 	struct vring_used  *used;
 };
@@ -125,9 +125,17 @@ struct vring {
 #define vring_avail_event(vr) (*(uint16_t *)&(vr)->used->ring[(vr)->num])
 
 static inline size_t
-vring_size(unsigned int num, unsigned long align)
+vring_size(struct virtio_hw *hw, unsigned int num, unsigned long align)
 {
 	size_t size;
+
+	if (vtpci_packed_queue(hw)) {
+		size = num * sizeof(struct vring_packed_desc);
+		size += sizeof(struct vring_packed_desc_event);
+		size = RTE_ALIGN_CEIL(size, align);
+		size += sizeof(struct vring_packed_desc_event);
+		return size;
+	}
 
 	size = num * sizeof(struct vring_desc);
 	size += sizeof(struct vring_avail) + (num * sizeof(uint16_t));
@@ -136,17 +144,29 @@ vring_size(unsigned int num, unsigned long align)
 		(num * sizeof(struct vring_used_elem));
 	return size;
 }
-
 static inline void
-vring_init(struct vring *vr, unsigned int num, uint8_t *p,
-	unsigned long align)
+vring_init_split(struct vring *vr, uint8_t *p, unsigned long align,
+		 unsigned int num)
 {
 	vr->num = num;
 	vr->desc = (struct vring_desc *) p;
 	vr->avail = (struct vring_avail *) (p +
-		num * sizeof(struct vring_desc));
+			vr->num * sizeof(struct vring_desc));
 	vr->used = (void *)
-		RTE_ALIGN_CEIL((uintptr_t)(&vr->avail->ring[num]), align);
+		RTE_ALIGN_CEIL((uintptr_t)(&vr->avail->ring[vr->num]), align);
+}
+
+static inline void
+vring_init_packed(struct vring_packed *vr, uint8_t *p, unsigned long align,
+		 unsigned int num)
+{
+	vr->num = num;
+	vr->desc_packed = (struct vring_packed_desc *)p;
+	vr->driver_event = (struct vring_packed_desc_event *)(p +
+			vr->num * sizeof(struct vring_packed_desc));
+	vr->device_event = (struct vring_packed_desc_event *)
+		RTE_ALIGN_CEIL((uintptr_t)(vr->driver_event +
+				sizeof(struct vring_packed_desc_event)), align);
 }
 
 /*
