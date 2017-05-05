@@ -314,11 +314,13 @@ virtio_user_dev_setup(struct virtio_user_dev *dev)
 	 1ULL << VIRTIO_NET_F_GUEST_CSUM	|	\
 	 1ULL << VIRTIO_NET_F_GUEST_TSO4	|	\
 	 1ULL << VIRTIO_NET_F_GUEST_TSO6	|	\
-	 1ULL << VIRTIO_F_VERSION_1)
+	 1ULL << VIRTIO_F_VERSION_1		|	\
+	 1ULL << VIRTIO_F_RING_PACKED)
 
 int
 virtio_user_dev_init(struct virtio_user_dev *dev, char *path, int queues,
-		     int cq, int queue_size, const char *mac, char **ifname)
+		     int cq, int queue_size, const char *mac, char **ifname,
+		     int version_1_1)
 {
 	snprintf(dev->path, PATH_MAX, "%s", path);
 	dev->max_queue_pairs = queues;
@@ -347,6 +349,12 @@ virtio_user_dev_init(struct virtio_user_dev *dev, char *path, int queues,
 		PMD_INIT_LOG(ERR, "get_features failed: %s", strerror(errno));
 		return -1;
 	}
+
+	if (version_1_1)
+		dev->device_features |= (1ull << VIRTIO_F_RING_PACKED);
+	else
+		dev->device_features &= ~(1ull << VIRTIO_F_RING_PACKED);
+
 	if (dev->mac_specified)
 		dev->device_features |= (1ull << VIRTIO_NET_F_MAC);
 
