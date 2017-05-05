@@ -161,11 +161,16 @@ struct virtio_pmd_ctrl {
 struct vq_desc_extra {
 	void *cookie;
 	uint16_t ndescs;
+	uint16_t next;
 };
 
 struct virtqueue {
 	struct virtio_hw  *hw; /**< virtio_hw structure pointer. */
 	struct vring vq_ring;  /**< vring keeping desc, used and avail */
+	struct vring_packed ring_packed;  /**< vring keeping desc, used and avail */
+	bool avail_wrap_counter;
+	bool used_wrap_counter;
+
 	/**
 	 * Last consumed descriptor in the used table,
 	 * trails vq_ring.used->idx.
@@ -245,9 +250,21 @@ struct virtio_tx_region {
 			   __attribute__((__aligned__(16)));
 };
 
+static inline void
+vring_desc_init_packed(struct virtqueue *vq, int n)
+{
+	int i;
+	for (i = 0; i < n - 1; i++) {
+		vq->ring_packed.desc_packed[i].index = i;
+		vq->vq_descx[i].next = i + 1;
+	}
+	vq->ring_packed.desc_packed[i].index = i;
+	vq->vq_descx[i].next = VQ_RING_DESC_CHAIN_END;
+}
+
 /* Chain all the descriptors in the ring with an END */
 static inline void
-vring_desc_init(struct vring_desc *dp, uint16_t n)
+vring_desc_init_split(struct vring_desc *dp, uint16_t n)
 {
 	uint16_t i;
 
