@@ -351,6 +351,7 @@ vhost_user_set_vring_addr(struct virtio_net *dev, VhostUserMsg *msg)
 			dev->vid);
 		return -1;
 	}
+	vq->desc_1_1 = (struct vring_desc_1_1 *)vq->desc;
 
 	dev = numa_realloc(dev, msg->payload.addr.index);
 	vq = dev->virtqueue[msg->payload.addr.index];
