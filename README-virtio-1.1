@@ -1,0 +1,50 @@
+This branch implements a very rough virtio 1.1 prototpye: only the Tx path has
+been implemented. And below are the test scripts and guidelines for testing:
+
+- build DPDK
+
+  $ export RTE_SDK=/path/to/dpdk/src
+  $ export RTE_TARGET=x86_64-native-linuxapp-gcc
+  $ make install T=$RTE_TARGET
+
+- run host.sh
+
+- run virtio-user.sh
+  execute 'start' inside the pmd
+  execute 'show port stats all' (2 or more times) to see the throughtput.
+
+Note: both scripts should run on the same machine.
+
+You could also set "version_1_1=0" at virtio-user.sh to test
+the difference between virtio 1.1 and virtio 0.95/1.0.
+
+---
+[yliu@yliu-dev ~]$ cat /tmp/host.sh
+#!/bin/bash
+
+[ "$gdb" ] && gdb="gdb --args"
+
+rm -f vhost-net
+
+sudo $gdb $RTE_SDK/x86_64-native-linuxapp-gcc/app/testpmd \
+        -c 0x5 -n 4 --socket-mem 2048,0 \
+        --no-pci --file-prefix=vhost            \
+        --vdev 'net_vhost0,iface=/tmp/vhost-net' \
+        -- \
+        --forward-mode=rxonly \
+        #-i
+
+
+[yliu@yliu-dev ~]$ cat /tmp/virtio-user.sh
+#!/bin/bash
+
+[ "$gdb" ] && gdb="gdb --args"
+
+sudo $gdb $RTE_SDK/x86_64-native-linuxapp-gcc/app/testpmd       \
+        -c 0x9 -n 4 --socket-mem 2048,0 \
+        --no-pci --file-prefix=virtio           \
+        --vdev=net_virtio_user0,mac=52:54:00:00:00:15,path=/tmp/vhost-net,version_1_1=1 \
+        -- \
+        --forward-mode=txonly \
+        --disable-hw-vlan --no-flush-rx \
+        -i
