@@ -189,6 +189,7 @@ struct vhost_msg {
 				(1ULL << VIRTIO_NET_F_GUEST_ANNOUNCE) | \
 				(1ULL << VIRTIO_NET_F_MQ)      | \
 				(1ULL << VIRTIO_F_VERSION_1)   | \
+				(1ULL << VIRTIO_F_RING_PACKED) | \
 				(1ULL << VHOST_F_LOG_ALL)      | \
 				(1ULL << VHOST_USER_F_PROTOCOL_FEATURES) | \
 				(1ULL << VIRTIO_NET_F_GSO) | \
