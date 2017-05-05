@@ -1191,6 +1191,7 @@ dequeue_desc(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	 */
 	if (likely((desc->len == dev->vhost_hlen) &&
 		   (desc->flags & VRING_DESC_F_NEXT) != 0)) {
+		rte_smp_wmb();
 		desc->flags = 0;
 
 		desc = &descs[(head_idx++) & (vq->size - 1)];
@@ -1250,11 +1251,11 @@ dequeue_desc(struct virtio_net *dev, struct vhost_virtqueue *vq,
 
 		/* This desc reaches to its end, get the next one */
 		if (desc_avail == 0) {
-			desc->flags = 0;
-
 			if ((desc->flags & VRING_DESC_F_NEXT) == 0)
 				break;
 
+			rte_smp_wmb();
+			desc->flags = 0;
 			desc = &descs[(head_idx++) & (vq->size - 1)];
 			if (unlikely(desc->flags & VRING_DESC_F_INDIRECT))
 				return -1;
@@ -1293,6 +1294,7 @@ dequeue_desc(struct virtio_net *dev, struct vhost_virtqueue *vq,
 			mbuf_avail  = cur->buf_len - RTE_PKTMBUF_HEADROOM;
 		}
 	}
+	rte_smp_wmb();
 	desc->flags = 0;
 
 	prev->data_len = mbuf_offset;
