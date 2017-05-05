@@ -74,6 +74,7 @@ struct batch_copy_elem {
  */
 struct vhost_virtqueue {
 	struct vring_desc	*desc;
+	struct vring_desc_packed   *desc_packed;
 	struct vring_avail	*avail;
 	struct vring_used	*used;
 	uint32_t		size;
@@ -111,6 +112,7 @@ struct vhost_virtqueue {
 
 	struct batch_copy_elem	*batch_copy_elems;
 	uint16_t		batch_copy_nb_elems;
+	uint16_t		used_wrap_counter;
 
 	rte_rwlock_t	iotlb_lock;
 	rte_rwlock_t	iotlb_pending_lock;

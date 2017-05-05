@@ -39,6 +39,7 @@
 #include "iotlb.h"
 #include "vhost.h"
 #include "vhost_user.h"
+#include "virtio-packed.h"
 
 #define VIRTIO_MIN_MTU 68
 #define VIRTIO_MAX_MTU 65535
@@ -471,6 +472,24 @@ translate_ring_addresses(struct virtio_net *dev, int vq_index)
 	struct vhost_virtqueue *vq = dev->virtqueue[vq_index];
 	struct vhost_vring_addr *addr = &vq->ring_addrs;
 
+	if (vq_is_packed(dev)) {
+		vq->desc_packed = (struct vring_desc_packed *) ring_addr_to_vva
+			(dev, vq, addr->desc_user_addr,
+			 sizeof(struct vring_desc_packed));
+		vq->desc = NULL;
+		vq->avail = NULL;
+		vq->used = NULL;
+		vq->log_guest_addr = 0;
+
+		if (vq->last_used_idx != 0) {
+			RTE_LOG(WARNING, VHOST_CONFIG,
+				"last_used_idx (%u) not 0\n",
+				vq->last_used_idx);
+			vq->last_used_idx = 0;
+		}
+		return dev;
+	}
+
 	/* The addresses are converted from QEMU virtual to Vhost virtual. */
 	if (vq->desc && vq->avail && vq->used)
 		return dev;
@@ -483,6 +502,7 @@ translate_ring_addresses(struct virtio_net *dev, int vq_index)
 			dev->vid);
 		return dev;
 	}
+	vq->desc_packed = NULL;
 
 	dev = numa_realloc(dev, vq_index);
 	vq = dev->virtqueue[vq_index];
@@ -855,7 +875,8 @@ err_mmap:
 static int
 vq_is_ready(struct vhost_virtqueue *vq)
 {
-	return vq && vq->desc && vq->avail && vq->used &&
+	return vq &&
+	       (vq->desc_packed || (vq->desc && vq->avail && vq->used)) &&
 	       vq->kickfd != VIRTIO_UNINITIALIZED_EVENTFD &&
 	       vq->callfd != VIRTIO_UNINITIALIZED_EVENTFD;
 }
