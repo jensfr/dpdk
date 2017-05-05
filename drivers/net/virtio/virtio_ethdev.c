@@ -333,12 +333,12 @@ virtio_init_vring(struct virtqueue *vq)
 		vq->vq_desc_head_idx = 0;
 		vq->vq_desc_tail_idx = (uint16_t)(vq->vq_nentries - 1);
 		vring_desc_init(vr->desc, size);
-	}
 
-	/*
-	 * Disable device(host) interrupting guest
-	 */
-	virtqueue_disable_intr(vq);
+		/*
+		 * Disable device(host) interrupting guest
+		 */
+		virtqueue_disable_intr(vq);
+	}
 }
 
 static int
@@ -624,7 +624,8 @@ virtio_dev_close(struct rte_eth_dev *dev)
 	}
 
 	vtpci_reset(hw);
-	virtio_dev_free_mbufs(dev);
+	if (!vtpci_version_1_1(hw))
+		virtio_dev_free_mbufs(dev);
 	virtio_free_queues(hw);
 }
 
@@ -1595,6 +1596,12 @@ eth_virtio_dev_init(struct rte_eth_dev *eth_dev)
 	if (ret < 0)
 		return ret;
 
+	/* FIXME: as second process? */
+	if (vtpci_version_1_1(hw))
+		eth_dev->tx_pkt_burst = &virtio_xmit_pkts_1_1;
+	else
+		eth_dev->tx_pkt_burst = &virtio_xmit_pkts;
+
 	/* Setup interrupt callback  */
 	if (eth_dev->data->dev_flags & RTE_ETH_DEV_INTR_LSC)
 		rte_intr_callback_register(eth_dev->intr_handle,
@@ -1807,6 +1814,10 @@ virtio_dev_start(struct rte_eth_dev *dev)
 			return -EIO;
 		}
 	}
+
+	/*no rx support for virtio 1.1 yet*/
+	if (vtpci_version_1_1(hw))
+		return 0;
 
 	/*Notify the backend
 	 *Otherwise the tap backend might already stop its queue due to fullness.
