@@ -54,11 +54,38 @@ struct vring_used {
 	struct vring_used_elem ring[0];
 };
 
+/* For support of packed virtqueues in Virtio 1.1 the format of descriptors
+ * looks like this.
+ */
+struct vring_desc_packed {
+	uint64_t addr;
+	uint32_t len;
+	uint16_t index;
+	uint16_t flags;
+};
+
+#define RING_EVENT_FLAGS_ENABLE 0x0
+#define RING_EVENT_FLAGS_DISABLE 0x1
+#define RING_EVENT_FLAGS_DESC 0x2
+struct vring_packed_desc_event {
+	uint16_t desc_event_off_wrap;
+	uint16_t desc_event_flags;
+};
+
 struct vring {
 	unsigned int num;
-	struct vring_desc  *desc;
-	struct vring_avail *avail;
-	struct vring_used  *used;
+	union {
+		struct vring_desc_packed *desc_packed;
+		struct vring_desc *desc;
+	};
+	union {
+		struct vring_avail *avail;
+		struct vring_packed_desc_event *driver_event;
+	};
+	union {
+		struct vring_used  *used;
+		struct vring_packed_desc_event *device_event;
+	};
 };
 
 /* The standard layout for the ring is a continuous chunk of memory which
@@ -95,9 +122,16 @@ struct vring {
 #define vring_avail_event(vr) (*(uint16_t *)&(vr)->used->ring[(vr)->num])
 
 static inline size_t
-vring_size(unsigned int num, unsigned long align)
+vring_size(struct virtio_hw *hw, unsigned int num, unsigned long align)
 {
 	size_t size;
+
+	if (vtpci_packed_queue(hw)) {
+		size = num * sizeof(struct vring_desc_packed);
+		size = RTE_ALIGN_CEIL(size, align);
+		size += 2 * sizeof(struct vring_packed_desc_event);
+		return size;
+	}
 
 	size = num * sizeof(struct vring_desc);
 	size += sizeof(struct vring_avail) + (num * sizeof(uint16_t));
@@ -108,10 +142,20 @@ vring_size(unsigned int num, unsigned long align)
 }
 
 static inline void
-vring_init(struct vring *vr, unsigned int num, uint8_t *p,
+vring_init(struct virtio_hw *hw, struct vring *vr, unsigned int num, uint8_t *p,
 	unsigned long align)
 {
 	vr->num = num;
+	if (vtpci_packed_queue(hw)) {
+		vr->desc_packed = (struct vring_desc_packed *)p;
+		vr->driver_event = (struct vring_packed_desc_event *)(p +
+			num * sizeof(struct vring_desc_packed));
+		vr->device_event = (struct vring_packed_desc_event *)
+				RTE_ALIGN_CEIL((uintptr_t)(vr->driver_event +
+				sizeof(struct vring_packed_desc_event)), align);
+		return;
+	}
+
 	vr->desc = (struct vring_desc *) p;
 	vr->avail = (struct vring_avail *) (p +
 		num * sizeof(struct vring_desc));
