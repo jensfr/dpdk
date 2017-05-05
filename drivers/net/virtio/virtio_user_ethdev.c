@@ -299,6 +299,8 @@ static const char *valid_args[] = {
 	VIRTIO_USER_ARG_QUEUE_SIZE,
 #define VIRTIO_USER_ARG_INTERFACE_NAME "iface"
 	VIRTIO_USER_ARG_INTERFACE_NAME,
+#define VIRTIO_USER_ARG_VERSION_1_1     "version_1_1"
+	VIRTIO_USER_ARG_VERSION_1_1,
 	NULL
 };
 
@@ -404,6 +406,7 @@ virtio_user_pmd_probe(struct rte_vdev_device *dev)
 	char *ifname = NULL;
 	char *mac_addr = NULL;
 	int ret = -1;
+	uint64_t version_1_1 = 0;
 
 	kvlist = rte_kvargs_parse(rte_vdev_device_args(dev), valid_args);
 	if (!kvlist) {
@@ -478,6 +481,15 @@ virtio_user_pmd_probe(struct rte_vdev_device *dev)
 		cq = 1;
 	}
 
+	if (rte_kvargs_count(kvlist, VIRTIO_USER_ARG_VERSION_1_1) == 1) {
+		if (rte_kvargs_process(kvlist, VIRTIO_USER_ARG_VERSION_1_1,
+				       &get_integer_arg, &version_1_1) < 0) {
+			PMD_INIT_LOG(ERR, "error to parse %s",
+				     VIRTIO_USER_ARG_VERSION_1_1);
+			goto end;
+		}
+	}
+
 	if (queues > 1 && cq == 0) {
 		PMD_INIT_LOG(ERR, "multi-q requires ctrl-q");
 		goto end;
@@ -499,7 +511,7 @@ virtio_user_pmd_probe(struct rte_vdev_device *dev)
 
 		hw = eth_dev->data->dev_private;
 		if (virtio_user_dev_init(hw->virtio_user_dev, path, queues, cq,
-				 queue_size, mac_addr, &ifname) < 0) {
+				 queue_size, mac_addr, &ifname, version_1_1) < 0) {
 			PMD_INIT_LOG(ERR, "virtio_user_dev_init fails");
 			virtio_user_eth_dev_free(eth_dev);
 			goto end;
