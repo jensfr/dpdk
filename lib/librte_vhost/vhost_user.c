@@ -390,6 +390,7 @@ translate_ring_addresses(struct virtio_net *dev, int vq_index)
 			dev->vid);
 		return dev;
 	}
+	vq->desc_1_1 = (struct vring_desc_1_1 *)vq->desc;
 
 	dev = numa_realloc(dev, vq_index);
 	vq = dev->virtqueue[vq_index];
