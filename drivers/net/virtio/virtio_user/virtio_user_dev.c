@@ -391,12 +391,13 @@ virtio_user_dev_setup(struct virtio_user_dev *dev)
 	 1ULL << VIRTIO_NET_F_GUEST_TSO4	|	\
 	 1ULL << VIRTIO_NET_F_GUEST_TSO6	|	\
 	 1ULL << VIRTIO_F_IN_ORDER		|	\
-	 1ULL << VIRTIO_F_VERSION_1)
+	 1ULL << VIRTIO_F_VERSION_1		|	\
+	 1ULL << VIRTIO_F_RING_PACKED)
 
 int
 virtio_user_dev_init(struct virtio_user_dev *dev, char *path, int queues,
 		     int cq, int queue_size, const char *mac, char **ifname,
-		     int mrg_rxbuf, int in_order)
+		     int mrg_rxbuf, int in_order, int packed_vq)
 {
 	pthread_mutex_init(&dev->mutex, NULL);
 	snprintf(dev->path, PATH_MAX, "%s", path);
@@ -449,6 +450,11 @@ virtio_user_dev_init(struct virtio_user_dev *dev, char *path, int queues,
 	if (!in_order) {
 		dev->device_features &= ~(1ull << VIRTIO_F_IN_ORDER);
 		dev->unsupported_features |= (1ull << VIRTIO_F_IN_ORDER);
+	}
+
+	if (!packed_vq) {
+		dev->device_features &= ~(1ull << VIRTIO_F_RING_PACKED);
+		dev->unsupported_features |= (1ull << VIRTIO_F_RING_PACKED);
 	}
 
 	if (dev->mac_specified) {
