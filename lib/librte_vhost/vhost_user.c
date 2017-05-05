@@ -378,6 +378,20 @@ translate_ring_addresses(struct virtio_net *dev, int vq_index)
 	struct vhost_virtqueue *vq = dev->virtqueue[vq_index];
 	struct vhost_vring_addr *addr = &vq->ring_addrs;
 
+	if (dev->features & (1ULL << VIRTIO_F_VERSION_1_1)) {
+		vq->desc_1_1 = (struct vring_desc_1_1 *)(uintptr_t)ring_addr_to_vva
+			(dev, vq, addr->desc_user_addr,
+			 sizeof(vq->desc_1_1));
+		vq->desc = NULL;
+		vq->avail = NULL;
+		vq->used = NULL;
+		vq->log_guest_addr = 0;
+
+		assert(vq->last_used_idx == 0);
+
+		return dev;
+	}
+
 	/* The addresses are converted from QEMU virtual to Vhost virtual. */
 	if (vq->desc && vq->avail && vq->used)
 		return dev;
@@ -390,6 +404,7 @@ translate_ring_addresses(struct virtio_net *dev, int vq_index)
 			dev->vid);
 		return dev;
 	}
+	vq->desc_1_1 = NULL;
 
 	dev = numa_realloc(dev, vq_index);
 	vq = dev->virtqueue[vq_index];
@@ -693,9 +708,14 @@ err_mmap:
 static int
 vq_is_ready(struct vhost_virtqueue *vq)
 {
-	return vq && vq->desc && vq->avail && vq->used &&
-	       vq->kickfd != VIRTIO_UNINITIALIZED_EVENTFD &&
-	       vq->callfd != VIRTIO_UNINITIALIZED_EVENTFD;
+	if (vq->desc_1_1)
+		return vq && vq->desc_1_1 &&
+		       vq->kickfd != VIRTIO_UNINITIALIZED_EVENTFD &&
+		       vq->callfd != VIRTIO_UNINITIALIZED_EVENTFD;
+	else
+		return vq && vq->desc && vq->avail && vq->used &&
+		       vq->kickfd != VIRTIO_UNINITIALIZED_EVENTFD &&
+		       vq->callfd != VIRTIO_UNINITIALIZED_EVENTFD;
 }
 
 static int
