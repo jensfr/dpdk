@@ -840,7 +840,9 @@ rte_vhost_enqueue_burst(int vid, uint16_t queue_id,
 		return 0;
 	}
 
-	if (dev->features & (1 << VIRTIO_NET_F_MRG_RXBUF))
+	if (vq_is_packed(dev))
+		return vhost_enqueue_burst_packed(dev, queue_id, pkts, count);
+	else if (dev->features & (1 << VIRTIO_NET_F_MRG_RXBUF))
 		return virtio_dev_merge_rx(dev, queue_id, pkts, count);
 	else
 		return virtio_dev_rx(dev, queue_id, pkts, count);
@@ -1499,6 +1501,10 @@ rte_vhost_dequeue_burst(int vid, uint16_t queue_id,
 
 	if (unlikely(vq->enabled == 0))
 		goto out_access_unlock;
+
+	if (vq_is_packed(dev))
+		return vhost_dequeue_burst_packed(dev, vq, mbuf_pool, pkts,
+						  count);
 
 	vq->batch_copy_nb_elems = 0;
 
