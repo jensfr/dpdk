@@ -337,6 +337,7 @@ virtio_init_vring(struct virtqueue *vq)
 
 		for (i = 0; i < size; i++) {
 			struct desc *desc = &vr->desc_1_1[i];
+			desc->flags = 0;
 			desc->index = i;
 		}
 	} else {
@@ -1247,7 +1248,7 @@ static void
 rx_func_get(struct rte_eth_dev *eth_dev)
 {
 	struct virtio_hw *hw = eth_dev->data->dev_private;
-	if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF))
+	if (0 && vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF))
 		eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts;
 	else
 		eth_dev->rx_pkt_burst = &virtio_recv_pkts;
@@ -1378,7 +1379,8 @@ virtio_init_device(struct rte_eth_dev *eth_dev, uint64_t req_features)
 
 	/* Setting up rx_header size for the device */
 	if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF) ||
-	    vtpci_with_feature(hw, VIRTIO_F_VERSION_1))
+	    vtpci_with_feature(hw, VIRTIO_F_VERSION_1) ||
+	    vtpci_with_feature(hw, VIRTIO_F_VERSION_1_1))
 		hw->vtnet_hdr_size = sizeof(struct virtio_net_hdr_mrg_rxbuf);
 	else
 		hw->vtnet_hdr_size = sizeof(struct virtio_net_hdr);
