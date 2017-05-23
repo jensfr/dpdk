@@ -376,7 +376,7 @@ virtio_init_queue(struct rte_eth_dev *dev, uint16_t vtpci_queue_idx)
 	 * Always power of 2 and if 0 virtqueue does not exist
 	 */
 	vq_size = hw->vtpci_ops->get_queue_num(hw, vtpci_queue_idx);
-	PMD_INIT_LOG(DEBUG, "vq_size: %u nb_desc:%u", vq_size, nb_desc);
+	PMD_INIT_LOG(DEBUG, "vq_size: %u", vq_size);
 	if (vq_size == 0) {
 		PMD_INIT_LOG(ERR, "virtqueue does not exist");
 		return -EINVAL;
