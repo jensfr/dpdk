@@ -833,7 +833,7 @@ vhost_enqueue_burst_1_1(struct virtio_net *dev, uint16_t queue_id,
 	for (i = 0; i < count; i++) {
 		idx = (head_idx + i) & (vq->size - 1);
 		desc[idx].flags &= ~DESC_HW;
-		desc[idx].len    = pkts[i]->pkt_len;
+		desc[idx].len    = pkts[i]->pkt_len + dev->vhost_hlen;
 	}
 
 	return count;
