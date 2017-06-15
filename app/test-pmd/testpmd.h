@@ -251,6 +251,7 @@ extern struct fwd_engine mac_swap_engine;
 extern struct fwd_engine flow_gen_engine;
 extern struct fwd_engine rx_only_engine;
 extern struct fwd_engine tx_only_engine;
+extern struct fwd_engine s_tx_only_engine;
 extern struct fwd_engine csum_fwd_engine;
 extern struct fwd_engine icmp_echo_engine;
 #ifdef RTE_LIBRTE_IEEE1588
