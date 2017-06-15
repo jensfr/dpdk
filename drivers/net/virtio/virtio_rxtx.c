@@ -113,7 +113,7 @@ vq_ring_free_chain(struct virtqueue *vq, uint16_t desc_idx)
 	dp->next = VQ_RING_DESC_CHAIN_END;
 }
 
-static uint16_t
+static inline uint16_t
 virtqueue_dequeue_burst_rx(struct virtqueue *vq, struct rte_mbuf **rx_pkts,
 			   uint32_t *len, uint16_t num)
 {
@@ -174,7 +174,6 @@ virtio_xmit_cleanup(struct virtqueue *vq, uint16_t num)
 		}
 	}
 }
-
 
 static inline int
 virtqueue_enqueue_recv_refill(struct virtqueue *vq, struct rte_mbuf *cookie)
@@ -270,6 +269,7 @@ tx_offload_enabled(struct virtio_hw *hw)
 	if ((var) != (val))			\
 		(var) = (val);			\
 } while (0)
+
 
 static inline void
 virtqueue_enqueue_xmit(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
@@ -426,9 +426,6 @@ virtio_dev_rx_queue_setup(struct rte_eth_dev *dev,
 
 	PMD_INIT_FUNC_TRACE();
 
-	if (vtpci_version_1_1(hw))
-		return 0;
-
 	if (nb_desc == 0 || nb_desc > vq->vq_nentries)
 		nb_desc = vq->vq_nentries;
 	vq->vq_free_cnt = RTE_MIN(vq->vq_free_cnt, nb_desc);
@@ -457,6 +454,31 @@ virtio_dev_rx_queue_setup_finish(struct rte_eth_dev *dev, uint16_t queue_idx)
 	int error, nbufs;
 
 	PMD_INIT_FUNC_TRACE();
+
+	if (vtpci_version_1_1(hw)) {
+		struct vring_desc_1_1 *desc;
+		struct vq_desc_extra *dxp;
+
+		for (desc_idx = 0; desc_idx < vq->vq_nentries;
+				desc_idx++) {
+			m = rte_mbuf_raw_alloc(rxvq->mpool);
+			if (unlikely(m == NULL))
+				return -ENOMEM;
+
+			dxp = &vq->vq_descx[desc_idx];
+			dxp->cookie = m;
+			dxp->ndescs = 1;
+
+			desc = &vq->vq_ring.desc_1_1[desc_idx];
+			desc->addr = VIRTIO_MBUF_ADDR(m, vq) +
+				RTE_PKTMBUF_HEADROOM - hw->vtnet_hdr_size;
+			desc->len = m->buf_len - RTE_PKTMBUF_HEADROOM +
+				hw->vtnet_hdr_size;
+			desc->flags = VRING_DESC_F_WRITE | DESC_HW;
+		}
+
+		return 0;
+	}
 
 	/* Allocate blank mbufs for the each rx descriptor */
 	nbufs = 0;
@@ -722,6 +744,114 @@ rx_offload_enabled(struct virtio_hw *hw)
 	return vtpci_with_feature(hw, VIRTIO_NET_F_GUEST_CSUM) ||
 		vtpci_with_feature(hw, VIRTIO_NET_F_GUEST_TSO4) ||
 		vtpci_with_feature(hw, VIRTIO_NET_F_GUEST_TSO6);
+}
+
+uint16_t
+virtio_recv_pkts_1_1(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
+{
+	struct virtnet_rx *rxvq = rx_queue;
+	struct virtqueue *vq = rxvq->vq;
+	struct virtio_hw *hw = vq->hw;
+	struct rte_mbuf *rxm, *nmb;
+	uint16_t nb_rx;
+	uint32_t len;
+	uint32_t i;
+	uint32_t hdr_size;
+	int offload;
+	struct virtio_net_hdr *hdr;
+	struct vring_desc_1_1 *descs = vq->vq_ring.desc_1_1;
+	struct vring_desc_1_1 *desc;
+	uint16_t used_idx = vq->vq_used_cons_idx;
+	struct vq_desc_extra *dxp;
+
+	nb_rx = 0;
+	if (unlikely(hw->started == 0))
+		return nb_rx;
+
+	hdr_size = hw->vtnet_hdr_size;
+	offload = rx_offload_enabled(hw);
+
+	for (i = 0; i < nb_pkts; i++) {
+		desc = &descs[used_idx & (vq->vq_nentries - 1)];
+		if (desc->flags & DESC_HW)
+			break;
+
+		nmb = rte_mbuf_raw_alloc(rxvq->mpool);
+		if (unlikely(nmb == NULL)) {
+			struct rte_eth_dev *dev
+				= &rte_eth_devices[rxvq->port_id];
+			dev->data->rx_mbuf_alloc_failed++;
+			break;
+		}
+
+		dxp = &vq->vq_descx[used_idx & (vq->vq_nentries - 1)];
+
+		len = desc->len;
+		rxm = dxp->cookie;
+		dxp->cookie = nmb;
+		dxp->ndescs = 1;
+
+		desc->addr = VIRTIO_MBUF_ADDR(nmb, vq) +
+			RTE_PKTMBUF_HEADROOM - hw->vtnet_hdr_size;
+		desc->len = nmb->buf_len - RTE_PKTMBUF_HEADROOM +
+			hw->vtnet_hdr_size;
+		desc->flags = VRING_DESC_F_WRITE;
+
+		PMD_RX_LOG(DEBUG, "packet len:%d", len);
+
+		if (unlikely(len < hdr_size + ETHER_HDR_LEN)) {
+			PMD_RX_LOG(ERR, "Packet drop");
+			rte_pktmbuf_free(rxm);
+			rxvq->stats.errors++;
+			continue;
+		}
+
+		rxm->port = rxvq->port_id;
+		rxm->data_off = RTE_PKTMBUF_HEADROOM;
+		rxm->ol_flags = 0;
+		rxm->vlan_tci = 0;
+
+		rxm->pkt_len = (uint32_t)(len - hdr_size);
+		rxm->data_len = (uint16_t)(len - hdr_size);
+
+		hdr = (struct virtio_net_hdr *)((char *)rxm->buf_addr +
+			RTE_PKTMBUF_HEADROOM - hdr_size);
+
+		if (hw->vlan_strip)
+			rte_vlan_strip(rxm);
+
+		if (offload && virtio_rx_offload(rxm, hdr) < 0) {
+			rte_pktmbuf_free(rxm);
+			rxvq->stats.errors++;
+			continue;
+		}
+
+		VIRTIO_DUMP_PACKET(rxm, rxm->data_len);
+
+		rxvq->stats.bytes += rxm->pkt_len;
+		virtio_update_packet_stats(&rxvq->stats, rxm);
+
+		used_idx++;
+
+		rx_pkts[nb_rx++] = rxm;
+	}
+
+	if (nb_rx > 0) {
+		uint16_t idx = (vq->vq_used_cons_idx + 1) & (vq->vq_nentries - 1);
+		for (i = 1; i < nb_rx; i++) {
+			descs[idx].flags |= DESC_HW;
+			idx = (idx + 1) & (vq->vq_nentries - 1);
+		}
+
+		rte_smp_wmb();
+		descs[vq->vq_used_cons_idx & (vq->vq_nentries - 1)].flags |= DESC_HW;
+	}
+
+	rxvq->stats.packets += nb_rx;
+
+	vq->vq_used_cons_idx = used_idx;
+
+	return nb_rx;
 }
 
 #define VIRTIO_MBUF_BURST_SZ 64
