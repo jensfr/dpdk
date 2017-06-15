@@ -1284,7 +1284,7 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 		PMD_INIT_LOG(INFO, "virtio: using simple Rx path on port %u",
 			eth_dev->data->port_id);
 		eth_dev->rx_pkt_burst = virtio_recv_pkts_vec;
-	} else if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF)) {
+	} else if (0 && vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF)) {
 		PMD_INIT_LOG(INFO,
 			"virtio: using mergeable buffer Rx path on port %u",
 			eth_dev->data->port_id);
@@ -1430,7 +1430,8 @@ virtio_init_device(struct rte_eth_dev *eth_dev, uint64_t req_features)
 
 	/* Setting up rx_header size for the device */
 	if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF) ||
-	    vtpci_with_feature(hw, VIRTIO_F_VERSION_1))
+	    vtpci_with_feature(hw, VIRTIO_F_VERSION_1) ||
+	    vtpci_with_feature(hw, VIRTIO_F_VERSION_1_1))
 		hw->vtnet_hdr_size = sizeof(struct virtio_net_hdr_mrg_rxbuf);
 	else
 		hw->vtnet_hdr_size = sizeof(struct virtio_net_hdr);
