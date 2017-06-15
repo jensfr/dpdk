@@ -161,6 +161,7 @@ struct fwd_engine * fwd_engines[] = {
 	&flow_gen_engine,
 	&rx_only_engine,
 	&tx_only_engine,
+	&s_tx_only_engine,
 	&csum_fwd_engine,
 	&icmp_echo_engine,
 #if defined RTE_LIBRTE_PMD_SOFTNIC && defined RTE_LIBRTE_SCHED
