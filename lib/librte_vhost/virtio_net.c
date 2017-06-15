@@ -719,6 +719,126 @@ out:
 	return pkt_idx;
 }
 
+static inline int __attribute__((always_inline))
+enqueue_pkt(struct virtio_net *dev, struct vring_desc_1_1 *descs,
+	    uint16_t desc_idx, struct rte_mbuf *m)
+{
+	uint32_t desc_avail, desc_offset;
+	uint32_t mbuf_avail, mbuf_offset;
+	uint32_t cpy_len;
+	struct vring_desc_1_1 *desc;
+	uint64_t desc_addr;
+	struct virtio_net_hdr_mrg_rxbuf *hdr;
+
+	desc = &descs[desc_idx];
+	desc_addr = rte_vhost_gpa_to_vva(dev->mem, desc->addr);
+	/*
+	 * Checking of 'desc_addr' placed outside of 'unlikely' macro to avoid
+	 * performance issue with some versions of gcc (4.8.4 and 5.3.0) which
+	 * otherwise stores offset on the stack instead of in a register.
+	 */
+	if (unlikely(desc->len < dev->vhost_hlen) || !desc_addr)
+		return -1;
+
+	rte_prefetch0((void *)(uintptr_t)desc_addr);
+
+	hdr = (struct virtio_net_hdr_mrg_rxbuf *)(uintptr_t)desc_addr;
+	virtio_enqueue_offload(m, &hdr->hdr);
+	vhost_log_write(dev, desc->addr, dev->vhost_hlen);
+	PRINT_PACKET(dev, (uintptr_t)desc_addr, dev->vhost_hlen, 0);
+
+	desc_offset = dev->vhost_hlen;
+	desc_avail  = desc->len - dev->vhost_hlen;
+
+	mbuf_avail  = rte_pktmbuf_data_len(m);
+	mbuf_offset = 0;
+	while (mbuf_avail != 0 || m->next != NULL) {
+		/* done with current mbuf, fetch next */
+		if (mbuf_avail == 0) {
+			m = m->next;
+
+			mbuf_offset = 0;
+			mbuf_avail  = rte_pktmbuf_data_len(m);
+		}
+
+		/* done with current desc buf, fetch next */
+		if (desc_avail == 0) {
+			if ((desc->flags & VRING_DESC_F_NEXT) == 0) {
+				/* Room in vring buffer is not enough */
+				return -1;
+			}
+
+			/** NOTE: we should not come here with current
+			    virtio-user implementation **/
+			desc_idx = (desc_idx + 1); // & (vq->size - 1);
+			desc = &descs[desc_idx];
+			if (unlikely(!(desc->flags & DESC_HW)))
+				return -1;
+
+			desc_addr = rte_vhost_gpa_to_vva(dev->mem, desc->addr);
+			if (unlikely(!desc_addr))
+				return -1;
+
+			desc_offset = 0;
+			desc_avail  = desc->len;
+		}
+
+		cpy_len = RTE_MIN(desc_avail, mbuf_avail);
+		rte_memcpy((void *)((uintptr_t)(desc_addr + desc_offset)),
+			rte_pktmbuf_mtod_offset(m, void *, mbuf_offset),
+			cpy_len);
+		vhost_log_write(dev, desc->addr + desc_offset, cpy_len);
+		PRINT_PACKET(dev, (uintptr_t)(desc_addr + desc_offset),
+			     cpy_len, 0);
+
+		mbuf_avail  -= cpy_len;
+		mbuf_offset += cpy_len;
+		desc_avail  -= cpy_len;
+		desc_offset += cpy_len;
+	}
+
+	return 0;
+}
+
+static inline uint32_t __attribute__((always_inline))
+vhost_enqueue_burst_1_1(struct virtio_net *dev, uint16_t queue_id,
+	      struct rte_mbuf **pkts, uint32_t count)
+{
+	struct vhost_virtqueue *vq;
+	uint16_t i;
+	uint16_t idx;
+	struct vring_desc_1_1 *desc;
+	uint16_t head_idx;
+
+	vq = dev->virtqueue[queue_id];
+	if (unlikely(vq->enabled == 0))
+		return 0;
+
+	head_idx = vq->last_used_idx;
+	desc = vq->desc_1_1;
+	for (i = 0; i < count; i++) {
+		/* XXX: there is an assumption that no desc will be chained */
+		idx = vq->last_used_idx & (vq->size - 1);
+		if (!(desc[idx].flags & DESC_HW))
+			break;
+
+		if (enqueue_pkt(dev, desc, idx, pkts[i]) < 0)
+			break;
+
+		vq->last_used_idx++;
+	}
+	count = i;
+
+	rte_smp_wmb();
+	for (i = 0; i < count; i++) {
+		idx = (head_idx + i) & (vq->size - 1);
+		desc[idx].flags &= ~DESC_HW;
+		desc[idx].len    = pkts[i]->pkt_len;
+	}
+
+	return count;
+}
+
 uint16_t
 rte_vhost_enqueue_burst(int vid, uint16_t queue_id,
 	struct rte_mbuf **pkts, uint16_t count)
@@ -728,7 +848,9 @@ rte_vhost_enqueue_burst(int vid, uint16_t queue_id,
 	if (!dev)
 		return 0;
 
-	if (dev->features & (1 << VIRTIO_NET_F_MRG_RXBUF))
+	if (dev->features & (1ULL << VIRTIO_F_VERSION_1_1))
+		return vhost_enqueue_burst_1_1(dev, queue_id, pkts, count);
+	else if (dev->features & (1 << VIRTIO_NET_F_MRG_RXBUF))
 		return virtio_dev_merge_rx(dev, queue_id, pkts, count);
 	else
 		return virtio_dev_rx(dev, queue_id, pkts, count);
