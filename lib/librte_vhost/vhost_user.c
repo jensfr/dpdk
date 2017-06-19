@@ -404,7 +404,7 @@ translate_ring_addresses(struct virtio_net *dev, int vq_index)
 
 	if (dev->features & (1ULL << VIRTIO_F_VERSION_1_1)) {
 		vq->desc_1_1 = (struct vring_desc_1_1 *)(uintptr_t)qva_to_vva
-					(dev, msg->payload.addr.desc_user_addr);
+					(dev, addr->desc_user_addr);
 		vq->desc = NULL;
 		vq->avail = NULL;
 		vq->used = NULL;
