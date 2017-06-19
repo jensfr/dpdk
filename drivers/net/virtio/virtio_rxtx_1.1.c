@@ -72,14 +72,6 @@ virtio_xmit_cleanup(struct virtqueue *vq)
 
 	idx = vq->vq_used_cons_idx & (size - 1);
 	while ((desc[idx].flags & DESC_HW) == 0) {
-		struct vq_desc_extra *dxp;
-
-		dxp = &vq->vq_descx[idx];
-		if (dxp->cookie != NULL) {
-			rte_pktmbuf_free(dxp->cookie);
-			dxp->cookie = NULL;
-		}
-
 		idx = (++vq->vq_used_cons_idx) & (size - 1);
 		vq->vq_free_cnt++;
 
@@ -96,10 +88,15 @@ virtio_xmit(struct virtnet_tx *txvq, struct rte_mbuf *mbuf, int first_mbuf)
 	struct vring_desc_1_1 *desc = vq->vq_ring.desc_1_1;
 	uint16_t idx;
 	uint16_t head_idx = (vq->vq_avail_idx++) & (vq->vq_nentries - 1);
+	struct vq_desc_extra *dxp;
 
 	idx = head_idx;
 	vq->vq_free_cnt -= mbuf->nb_segs + 1;
-	vq->vq_descx[idx].cookie = mbuf;
+
+	dxp = &vq->vq_descx[idx];
+	if (dxp->cookie != NULL)
+		rte_pktmbuf_free(dxp->cookie);
+	dxp->cookie = mbuf;
 
 	desc[idx].addr  = txvq->virtio_net_hdr_mem +
 			  RTE_PTR_DIFF(&txr[idx].tx_hdr, txr);
