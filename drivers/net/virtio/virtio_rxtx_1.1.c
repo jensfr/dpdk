@@ -72,14 +72,6 @@ virtio_xmit_cleanup(struct virtqueue *vq)
 
 	idx = vq->vq_used_cons_idx & (size - 1);
 	while ((desc[idx].flags & DESC_HW) == 0) {
-		struct vq_desc_extra *dxp;
-
-		dxp = &vq->vq_descx[idx];
-		if (dxp->cookie != NULL) {
-			rte_pktmbuf_free(dxp->cookie);
-			dxp->cookie = NULL;
-		}
-
 		idx = (++vq->vq_used_cons_idx) & (size - 1);
 		vq->vq_free_cnt++;
 
