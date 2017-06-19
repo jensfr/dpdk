@@ -1447,10 +1447,10 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 
 	vq->last_used_idx = desc_idx;
 	if (likely(i)) {
-		for (desc_idx = 1;
-		     desc_idx < (uint16_t)(vq->last_used_idx - head_idx);
+		for (desc_idx = head_idx + 1;
+		     desc_idx != vq->last_used_idx;
 		     desc_idx++) {
-			desc[(desc_idx + head_idx) & (vq->size - 1)].flags = 0;
+			desc[desc_idx & (vq->size - 1)].flags = 0;
 		}
 		rte_smp_wmb();
 		desc[head_idx & (vq->size - 1)].flags = 0;
