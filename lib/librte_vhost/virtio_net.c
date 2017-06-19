@@ -740,8 +740,6 @@ enqueue_pkt(struct virtio_net *dev, struct vring_desc_1_1 *descs,
 	if (unlikely(desc->len < dev->vhost_hlen) || !desc_addr)
 		return -1;
 
-	desc->len = m->pkt_len + dev->vhost_hlen;
-
 	rte_prefetch0((void *)(uintptr_t)desc_addr);
 
 	hdr = (struct virtio_net_hdr_mrg_rxbuf *)(uintptr_t)desc_addr;
@@ -835,11 +833,15 @@ vhost_enqueue_burst_1_1(struct virtio_net *dev, uint16_t queue_id,
 	count = i;
 
 	if (count) {
-		rte_smp_wmb();
-		for (i = 0; i < count; i++) {
+		for (i = 1; i < count; i++) {
 			idx = (head_idx + i) & (vq->size - 1);
+			desc[idx].len = pkts[i]->pkt_len + dev->vhost_hlen;
 			desc[idx].flags &= ~DESC_HW;
 		}
+		desc[head_idx & (vq->size - 1)].len =
+			pkts[0]->pkt_len + dev->vhost_hlen;
+		rte_smp_wmb();
+		desc[head_idx & (vq->size - 1)].flags &= ~DESC_HW;
 	}
 
 	return count;
