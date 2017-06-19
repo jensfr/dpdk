@@ -129,6 +129,9 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 
 	PMD_TX_LOG(DEBUG, "%d packets to xmit", nb_pkts);
 
+	if (likely(vq->vq_free_cnt < vq->vq_free_thresh))
+		virtio_xmit_cleanup(vq);
+
 	for (i = 0; i < nb_pkts; i++) {
 		struct rte_mbuf *txm = tx_pkts[i];
 
