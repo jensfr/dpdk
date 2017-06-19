@@ -1815,10 +1815,6 @@ virtio_dev_start(struct rte_eth_dev *dev)
 		}
 	}
 
-	/*no rx support for virtio 1.1 yet*/
-	if (vtpci_version_1_1(hw))
-		return 0;
-
 	/*Notify the backend
 	 *Otherwise the tap backend might already stop its queue due to fullness.
 	 *vhost backend will have no chance to be waked up
