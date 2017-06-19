@@ -297,9 +297,6 @@ virtqueue_enqueue_recv_refill_1_1(struct virtqueue *vq, struct rte_mbuf *cookie)
 
 	vq->vq_free_cnt -= needed;
 
-	rte_smp_wmb();
-	desc[idx].flags |= DESC_HW;
-
 	return 0;
 }
 
@@ -403,7 +400,7 @@ virtio_dev_rx_queue_setup_finish(struct rte_eth_dev *dev, uint16_t queue_idx)
 	struct virtqueue *vq = hw->vqs[vtpci_queue_idx];
 	struct virtnet_rx *rxvq = &vq->rxq;
 	struct rte_mbuf *m;
-	uint16_t desc_idx;
+	uint16_t head_idx, desc_idx;
 	int error, nbufs;
 
 	PMD_INIT_FUNC_TRACE();
@@ -427,6 +424,8 @@ virtio_dev_rx_queue_setup_finish(struct rte_eth_dev *dev, uint16_t queue_idx)
 			&rxvq->fake_mbuf;
 	}
 
+	head_idx = vq->vq_desc_head_idx;
+
 	while (!virtqueue_full(vq)) {
 		m = rte_mbuf_raw_alloc(rxvq->mpool);
 		if (m == NULL)
@@ -447,6 +446,14 @@ virtio_dev_rx_queue_setup_finish(struct rte_eth_dev *dev, uint16_t queue_idx)
 
 	if (!vtpci_version_1_1(hw))
 		vq_update_avail_idx(vq);
+	else {
+		struct vring_desc_1_1 *desc = vq->vq_ring.desc_1_1;
+		int i;
+		for (i = 0; i < nbufs; i++) {
+			desc[head_idx & (vq->vq_nentries - 1)].flags |= DESC_HW;
+			head_idx++;
+		}
+	}
 
 	PMD_INIT_LOG(DEBUG, "Allocated %d bufs", nbufs);
 
@@ -696,6 +703,7 @@ virtio_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
 	uint32_t hdr_size;
 	int offload;
 	struct virtio_net_hdr *hdr;
+	uint16_t head_idx, idx;
 
 	nb_rx = 0;
 	if (unlikely(hw->started == 0))
@@ -770,8 +778,11 @@ virtio_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
 
 	rxvq->stats.packets += nb_rx;
 
+	head_idx = vq->vq_desc_head_idx;
+
 	/* Allocate new mbuf for the used descriptor */
 	error = ENOSPC;
+	int count = 0;
 	while (likely(!virtqueue_full(vq))) {
 		new_mbuf = rte_mbuf_raw_alloc(rxvq->mpool);
 		if (unlikely(new_mbuf == NULL)) {
@@ -786,9 +797,21 @@ virtio_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
 			break;
 		}
 		nb_enqueued++;
+		count++;
 	}
 
-	if (likely(nb_enqueued) && !vtpci_version_1_1(hw)) {
+	if (vtpci_version_1_1(hw)) {
+		struct vring_desc_1_1 *desc = vq->vq_ring.desc_1_1;
+		if (count > 0) {
+			rte_smp_wmb();
+			idx = head_idx + 1;
+			while (--count) {
+				desc[idx & (vq->vq_nentries - 1)].flags |= DESC_HW;
+				idx++;
+			}
+			desc[head_idx & (vq->vq_nentries - 1)].flags |= DESC_HW;
+		}
+	} else if (likely(nb_enqueued)) {
 		vq_update_avail_idx(vq);
 
 		if (unlikely(virtqueue_kick_prepare(vq))) {
