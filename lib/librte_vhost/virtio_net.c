@@ -1335,33 +1335,13 @@ dequeue_desc(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	mbuf_offset = 0;
 	mbuf_avail  = m->buf_len - RTE_PKTMBUF_HEADROOM;
 	while (1) {
-		uint64_t hpa;
 
 		cpy_len = RTE_MIN(desc_avail, mbuf_avail);
 
-		/*
-		 * A desc buf might across two host physical pages that are
-		 * not continuous. In such case (gpa_to_hpa returns 0), data
-		 * will be copied even though zero copy is enabled.
-		 */
-		if (unlikely(dev->dequeue_zero_copy && (hpa = gpa_to_hpa(dev,
-					desc->addr + desc_offset, cpy_len)))) {
-			cur->data_len = cpy_len;
-			cur->data_off = 0;
-			cur->buf_addr = (void *)(uintptr_t)desc_addr;
-			cur->buf_physaddr = hpa;
-
-			/*
-			 * In zero copy mode, one mbuf can only reference data
-			 * for one or partial of one desc buff.
-			 */
-			mbuf_avail = cpy_len;
-		} else {
-			rte_memcpy(rte_pktmbuf_mtod_offset(cur, void *,
-							   mbuf_offset),
-				(void *)((uintptr_t)(desc_addr + desc_offset)),
-				cpy_len);
-		}
+		rte_memcpy(rte_pktmbuf_mtod_offset(cur, void *,
+						   mbuf_offset),
+			(void *)((uintptr_t)(desc_addr + desc_offset)),
+			cpy_len);
 
 		mbuf_avail  -= cpy_len;
 		mbuf_offset += cpy_len;
