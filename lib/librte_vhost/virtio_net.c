@@ -1432,6 +1432,7 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	struct vring_desc_1_1 *desc = vq->desc_1_1;
 	uint16_t head_idx = vq->last_used_idx;
 	uint16_t desc_idx;
+	int err;
 
 	desc_idx = vq->last_used_idx;
 	if (!(desc[desc_idx & (vq->size - 1)].flags & DESC_HW))
@@ -1450,7 +1451,11 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 			break;
 		}
 
-		dequeue_desc(dev, vq, mbuf_pool, pkts[i], desc, &desc_idx);
+		err = dequeue_desc(dev, vq, mbuf_pool, pkts[i], desc, &desc_idx);
+		if (unlikely(err)) {
+			rte_pktmbuf_free(pkts[i]);
+			break;
+		}
 	}
 
 	vq->last_used_idx = desc_idx;
