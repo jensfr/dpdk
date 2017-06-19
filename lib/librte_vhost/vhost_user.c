@@ -340,6 +340,19 @@ vhost_user_set_vring_addr(struct virtio_net *dev, struct vhost_vring_addr *addr)
 	/* addr->index refers to the queue index. The txq 1, rxq is 0. */
 	vq = dev->virtqueue[addr->index];
 
+	if (dev->features & (1ULL << VIRTIO_F_VERSION_1_1)) {
+		vq->desc_1_1 = (struct desc *)(uintptr_t)qva_to_vva(dev,
+					addr->desc_user_addr);
+		vq->desc = NULL;
+		vq->avail = NULL;
+		vq->used = NULL;
+		vq->log_guest_addr = 0;
+
+		assert(vq->last_used_idx == 0);
+
+		return 0;
+	}
+
 	/* The addresses are converted from QEMU virtual to Vhost virtual. */
 	vq->desc = (struct vring_desc *)(uintptr_t)qva_to_vva(dev,
 			addr->desc_user_addr);
@@ -349,7 +362,7 @@ vhost_user_set_vring_addr(struct virtio_net *dev, struct vhost_vring_addr *addr)
 			dev->vid);
 		return -1;
 	}
-	vq->desc_1_1 = (struct desc *)vq->desc;
+	vq->desc_1_1 = NULL;
 
 	dev = numa_realloc(dev, addr->index);
 	vq = dev->virtqueue[addr->index];
@@ -606,7 +619,7 @@ err_mmap:
 static int
 vq_is_ready(struct vhost_virtqueue *vq)
 {
-	return vq && vq->desc   &&
+	return vq && (vq->desc || vq->desc_1_1) &&
 	       vq->kickfd != VIRTIO_UNINITIALIZED_EVENTFD &&
 	       vq->callfd != VIRTIO_UNINITIALIZED_EVENTFD;
 }
