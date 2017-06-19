@@ -538,6 +538,10 @@ rte_vhost_enable_guest_notification(int vid, uint16_t queue_id, int enable)
 		return -1;
 	}
 
+	if (dev->features & (1ULL << VIRTIO_F_VERSION_1_1)) {
+		return 0;
+	}
+
 	dev->virtqueue[queue_id]->used->flags = VRING_USED_F_NO_NOTIFY;
 	return 0;
 }
