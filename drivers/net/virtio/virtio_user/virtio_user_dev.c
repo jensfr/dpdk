@@ -334,7 +334,8 @@ virtio_user_dev_setup(struct virtio_user_dev *dev)
 	 1ULL << VIRTIO_NET_F_GUEST_CSUM	|	\
 	 1ULL << VIRTIO_NET_F_GUEST_TSO4	|	\
 	 1ULL << VIRTIO_NET_F_GUEST_TSO6	|	\
-	 1ULL << VIRTIO_F_VERSION_1)
+	 1ULL << VIRTIO_F_VERSION_1		|	\
+	 1ULL << VIRTIO_F_VERSION_1_1)
 
 int
 virtio_user_dev_init(struct virtio_user_dev *dev, char *path, int queues,
@@ -369,9 +370,9 @@ virtio_user_dev_init(struct virtio_user_dev *dev, char *path, int queues,
 	}
 
 	if (version_1_1)
-		dev->features |= (1ull << VIRTIO_F_VERSION_1_1);
+		dev->device_features |= (1ull << VIRTIO_F_VERSION_1_1);
 	else
-		dev->features &= ~(1ull << VIRTIO_F_VERSION_1_1);
+		dev->device_features &= ~(1ull << VIRTIO_F_VERSION_1_1);
 
 	if (dev->mac_specified)
 		dev->device_features |= (1ull << VIRTIO_NET_F_MAC);
