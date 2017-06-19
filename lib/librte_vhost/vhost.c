@@ -52,7 +52,7 @@
 #define VHOST_USER_F_PROTOCOL_FEATURES	30
 
 /* Features supported by this lib. */
-#define VHOST_SUPPORTED_FEATURES ((1ULL << VIRTIO_NET_F_MRG_RXBUF) | \
+#define VHOST_SUPPORTED_FEATURES ( \
 				(1ULL << VIRTIO_NET_F_CTRL_VQ) | \
 				(1ULL << VIRTIO_NET_F_CTRL_RX) | \
 				(1ULL << VIRTIO_NET_F_GUEST_ANNOUNCE) | \
@@ -394,6 +394,10 @@ rte_vhost_enable_guest_notification(int vid, uint16_t queue_id, int enable)
 		RTE_LOG(ERR, VHOST_CONFIG,
 			"guest notification isn't supported.\n");
 		return -1;
+	}
+
+	if (dev->features & (1ULL << VIRTIO_F_VERSION_1_1)) {
+		return 0;
 	}
 
 	dev->virtqueue[queue_id]->used->flags = VRING_USED_F_NO_NOTIFY;
