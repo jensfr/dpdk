@@ -740,6 +740,8 @@ enqueue_pkt(struct virtio_net *dev, struct vring_desc_1_1 *descs,
 	if (unlikely(desc->len < dev->vhost_hlen) || !desc_addr)
 		return -1;
 
+	desc->len = m->pkt_len + dev->vhost_hlen;
+
 	rte_prefetch0((void *)(uintptr_t)desc_addr);
 
 	hdr = (struct virtio_net_hdr_mrg_rxbuf *)(uintptr_t)desc_addr;
@@ -768,6 +770,7 @@ enqueue_pkt(struct virtio_net *dev, struct vring_desc_1_1 *descs,
 				return -1;
 			}
 
+			rte_panic("Shouldn't reach here\n");
 			/** NOTE: we should not come here with current
 			    virtio-user implementation **/
 			desc_idx = (desc_idx + 1); // & (vq->size - 1);
@@ -816,6 +819,8 @@ vhost_enqueue_burst_1_1(struct virtio_net *dev, uint16_t queue_id,
 
 	head_idx = vq->last_used_idx;
 	desc = vq->desc_1_1;
+	count = RTE_MIN(count, (uint32_t)MAX_PKT_BURST);
+
 	for (i = 0; i < count; i++) {
 		/* XXX: there is an assumption that no desc will be chained */
 		idx = vq->last_used_idx & (vq->size - 1);
@@ -829,11 +834,12 @@ vhost_enqueue_burst_1_1(struct virtio_net *dev, uint16_t queue_id,
 	}
 	count = i;
 
-	rte_smp_wmb();
-	for (i = 0; i < count; i++) {
-		idx = (head_idx + i) & (vq->size - 1);
-		desc[idx].flags &= ~DESC_HW;
-		desc[idx].len    = pkts[i]->pkt_len + dev->vhost_hlen;
+	if (count) {
+		rte_smp_wmb();
+		for (i = 0; i < count; i++) {
+			idx = (head_idx + i) & (vq->size - 1);
+			desc[idx].flags &= ~DESC_HW;
+		}
 	}
 
 	return count;
