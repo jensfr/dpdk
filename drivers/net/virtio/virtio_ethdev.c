@@ -1280,15 +1280,9 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 {
 	struct virtio_hw *hw = eth_dev->data->dev_private;
 
-	if (hw->use_simple_rx) {
-		PMD_INIT_LOG(INFO, "virtio: using simple Rx path on port %u",
-			eth_dev->data->port_id);
-		eth_dev->rx_pkt_burst = virtio_recv_pkts_vec;
+	if (vtpci_version_1_1(hw)) {
+		eth_dev->rx_pkt_burst = &virtio_recv_pkts_1_1;
 	} else if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF)) {
-		PMD_INIT_LOG(INFO,
-			"virtio: using mergeable buffer Rx path on port %u",
-			eth_dev->data->port_id);
-	if (0 && vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF))
 		eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts;
 	} else {
 		PMD_INIT_LOG(INFO, "virtio: using standard Rx path on port %u",
