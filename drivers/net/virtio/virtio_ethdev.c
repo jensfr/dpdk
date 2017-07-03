@@ -1255,6 +1255,8 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 			"virtio: using mergeable buffer Rx path on port %u",
 			eth_dev->data->port_id);
 		eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts;
+	} else if (vtpci_version_1_1(hw)) {
+		eth_dev->rx_pkt_burst = &virtio_recv_pkts_1_1;
 	} else {
 		PMD_INIT_LOG(INFO, "virtio: using standard Rx path on port %u",
 			eth_dev->data->port_id);

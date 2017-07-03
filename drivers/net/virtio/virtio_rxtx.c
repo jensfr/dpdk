@@ -115,7 +115,7 @@ vq_ring_free_chain(struct virtqueue *vq, uint16_t desc_idx)
 }
 
 static inline uint16_t
-virtqueue_dequeue_burst_rx_1_0(struct virtqueue *vq, struct rte_mbuf **rx_pkts,
+virtqueue_dequeue_burst_rx(struct virtqueue *vq, struct rte_mbuf **rx_pkts,
 			   uint32_t *len, uint16_t num)
 {
 	struct vring_used_elem *uep;
@@ -150,53 +150,6 @@ virtqueue_dequeue_burst_rx_1_0(struct virtqueue *vq, struct rte_mbuf **rx_pkts,
 	return i;
 }
 
-static inline uint16_t
-virtqueue_dequeue_burst_rx_1_1(struct virtqueue *vq, struct rte_mbuf **rx_pkts,
-			   uint32_t *len, uint16_t num)
-{
-	struct vring_desc_1_1 *desc = vq->vq_ring.desc_1_1;
-	struct rte_mbuf *cookie;
-	uint16_t used_idx;
-	uint16_t i;
-
-	for (i = 0; i < num ; i++) {
-		used_idx = (uint16_t)(vq->vq_used_cons_idx & (vq->vq_nentries - 1));
-		if ((desc[used_idx].flags & DESC_HW))
-			break;
-
-		len[i] = desc[used_idx].len;
-		cookie = vq->vq_descx[used_idx].cookie;
-
-		if (unlikely(cookie == NULL)) {
-			PMD_DRV_LOG(ERR, "vring descriptor with no mbuf cookie at %u\n",
-				vq->vq_used_cons_idx);
-			break;
-		}
-		vq->vq_descx[used_idx].cookie = NULL;
-
-		rte_prefetch0(cookie);
-#if 0
-		rte_packet_prefetch(rte_pktmbuf_mtod(cookie, void *));
-#endif
-		rx_pkts[i]  = cookie;
-
-		vq->vq_used_cons_idx++;
-		vq->vq_free_cnt++;
-	}
-
-	return i;
-}
-
-static inline uint16_t
-virtqueue_dequeue_burst_rx(struct virtqueue *vq, struct rte_mbuf **rx_pkts,
-			   uint32_t *len, uint16_t num)
-{
-	if (vtpci_version_1_1(vq->hw))
-		return virtqueue_dequeue_burst_rx_1_1(vq, rx_pkts, len, num);
-	else
-		return virtqueue_dequeue_burst_rx_1_0(vq, rx_pkts, len, num);
-}
-
 #ifndef DEFAULT_TX_FREE_THRESH
 #define DEFAULT_TX_FREE_THRESH 32
 #endif
@@ -225,9 +178,8 @@ virtio_xmit_cleanup(struct virtqueue *vq, uint16_t num)
 	}
 }
 
-
 static inline int
-virtqueue_enqueue_recv_refill_1_0(struct virtqueue *vq, struct rte_mbuf *cookie)
+virtqueue_enqueue_recv_refill(struct virtqueue *vq, struct rte_mbuf *cookie)
 {
 	struct vq_desc_extra *dxp;
 	struct virtio_hw *hw = vq->hw;
@@ -264,50 +216,6 @@ virtqueue_enqueue_recv_refill_1_0(struct virtqueue *vq, struct rte_mbuf *cookie)
 	vq_update_avail_ring(vq, head_idx);
 
 	return 0;
-}
-
-static inline int
-virtqueue_enqueue_recv_refill_1_1(struct virtqueue *vq, struct rte_mbuf *cookie)
-{
-	struct vq_desc_extra *dxp;
-	struct virtio_hw *hw = vq->hw;
-	uint16_t needed = 1;
-	uint16_t idx;
-	struct vring_desc_1_1 *desc = vq->vq_ring.desc_1_1;
-
-	if (unlikely(vq->vq_free_cnt == 0))
-		return -ENOSPC;
-	if (unlikely(vq->vq_free_cnt < needed))
-		return -EMSGSIZE;
-
-	idx = vq->vq_desc_head_idx & (vq->vq_nentries - 1);
-	if (unlikely(desc[idx].flags & DESC_DRIVER))
-		return -EFAULT;
-
-	dxp = &vq->vq_descx[idx];
-	dxp->cookie = cookie;
-	dxp->ndescs = needed;
-
-	desc[idx].addr =
-		VIRTIO_MBUF_ADDR(cookie, vq) +
-		RTE_PKTMBUF_HEADROOM - hw->vtnet_hdr_size;
-	desc[idx].len =
-		cookie->buf_len - RTE_PKTMBUF_HEADROOM + hw->vtnet_hdr_size;
-	desc[idx].flags =  VRING_DESC_F_WRITE;
-	vq->vq_desc_head_idx++;
-
-	vq->vq_free_cnt -= needed;
-
-	return 0;
-}
-
-static inline int
-virtqueue_enqueue_recv_refill(struct virtqueue *vq, struct rte_mbuf *cookie)
-{
-	if (vtpci_version_1_1(vq->hw))
-		return virtqueue_enqueue_recv_refill_1_1(vq, cookie);
-	else
-		return virtqueue_enqueue_recv_refill_1_0(vq, cookie);
 }
 
 static inline void
@@ -688,6 +596,114 @@ rx_offload_enabled(struct virtio_hw *hw)
 		vtpci_with_feature(hw, VIRTIO_NET_F_GUEST_TSO6);
 }
 
+uint16_t
+virtio_recv_pkts_1_1(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
+{
+	struct virtnet_rx *rxvq = rx_queue;
+	struct virtqueue *vq = rxvq->vq;
+	struct virtio_hw *hw = vq->hw;
+	struct rte_mbuf *rxm, *nmb;
+	uint16_t nb_rx;
+	uint32_t len;
+	uint32_t i;
+	uint32_t hdr_size;
+	int offload;
+	struct virtio_net_hdr *hdr;
+	struct vring_desc_1_1 *descs = vq->vq_ring.desc_1_1;
+	struct vring_desc_1_1 *desc;
+	uint16_t used_idx = vq->vq_used_cons_idx;
+	struct vq_desc_extra *dxp;
+
+	nb_rx = 0;
+	if (unlikely(hw->started == 0))
+		return nb_rx;
+
+	hdr_size = hw->vtnet_hdr_size;
+	offload = rx_offload_enabled(hw);
+
+	for (i = 0; i < nb_pkts; i++) {
+		desc = &descs[used_idx & (vq->vq_nentries - 1)];
+		if (desc->flags & DESC_DRIVER)
+			break;
+
+		nmb = rte_mbuf_raw_alloc(rxvq->mpool);
+		if (unlikely(nmb == NULL)) {
+			struct rte_eth_dev *dev
+				= &rte_eth_devices[rxvq->port_id];
+			dev->data->rx_mbuf_alloc_failed++;
+			break;
+		}
+
+		dxp = &vq->vq_descx[used_idx & (vq->vq_nentries - 1)];
+
+		len = desc->len;
+		rxm = dxp->cookie;
+		dxp->cookie = nmb;
+		dxp->ndescs = 1;
+
+		desc->addr = VIRTIO_MBUF_ADDR(nmb, vq) +
+			RTE_PKTMBUF_HEADROOM - hw->vtnet_hdr_size;
+		desc->len = nmb->buf_len - RTE_PKTMBUF_HEADROOM +
+			hw->vtnet_hdr_size;
+		desc->flags = VRING_DESC_F_WRITE;
+
+		PMD_RX_LOG(DEBUG, "packet len:%d", len);
+
+		if (unlikely(len < hdr_size + ETHER_HDR_LEN)) {
+			PMD_RX_LOG(ERR, "Packet drop");
+			rte_pktmbuf_free(rxm);
+			rxvq->stats.errors++;
+			continue;
+		}
+
+		rxm->port = rxvq->port_id;
+		rxm->data_off = RTE_PKTMBUF_HEADROOM;
+		rxm->ol_flags = 0;
+		rxm->vlan_tci = 0;
+
+		rxm->pkt_len = (uint32_t)(len - hdr_size);
+		rxm->data_len = (uint16_t)(len - hdr_size);
+
+		hdr = (struct virtio_net_hdr *)((char *)rxm->buf_addr +
+			RTE_PKTMBUF_HEADROOM - hdr_size);
+
+		if (hw->vlan_strip)
+			rte_vlan_strip(rxm);
+
+		if (offload && virtio_rx_offload(rxm, hdr) < 0) {
+			rte_pktmbuf_free(rxm);
+			rxvq->stats.errors++;
+			continue;
+		}
+
+		VIRTIO_DUMP_PACKET(rxm, rxm->data_len);
+
+		rxvq->stats.bytes += rxm->pkt_len;
+		virtio_update_packet_stats(&rxvq->stats, rxm);
+
+		used_idx++;
+
+		rx_pkts[nb_rx++] = rxm;
+	}
+
+	if (nb_rx > 0) {
+		uint16_t idx = (vq->vq_used_cons_idx + 1) & (vq->vq_nentries - 1);
+		for (i = 1; i < nb_rx; i++) {
+			descs[idx].flags |= DESC_DRIVER;
+			idx = (idx + 1) & (vq->vq_nentries - 1);
+		}
+
+		rte_smp_wmb();
+		descs[vq->vq_used_cons_idx & (vq->vq_nentries - 1)].flags |= DESC_DRIVER;
+	}
+
+	rxvq->stats.packets += nb_rx;
+
+	vq->vq_used_cons_idx = used_idx;
+
+	return nb_rx;
+}
+
 #define VIRTIO_MBUF_BURST_SZ 64
 #define DESC_PER_CACHELINE (RTE_CACHE_LINE_SIZE / sizeof(struct vring_desc))
 uint16_t
@@ -705,22 +721,12 @@ virtio_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
 	uint32_t hdr_size;
 	int offload;
 	struct virtio_net_hdr *hdr;
-	uint16_t head_idx, idx;
 
 	nb_rx = 0;
 	if (unlikely(hw->started == 0))
 		return nb_rx;
 
-	/*
-	 * we have no idea to know how many used entries without scanning
-	 * the desc for virtio 1.1. Thus, let's simply set nb_used to nb_pkts
-	 * and let virtqueue_dequeue_burst_rx() to figure out the real
-	 * number.
-	 */
-	if (vtpci_version_1_1(hw))
-		nb_used = nb_pkts;
-	else
-		nb_used = VIRTQUEUE_NUSED(vq);
+	nb_used = VIRTQUEUE_NUSED(vq);
 
 	virtio_rmb();
 
@@ -780,8 +786,6 @@ virtio_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
 
 	rxvq->stats.packets += nb_rx;
 
-	head_idx = vq->vq_desc_head_idx;
-
 	/* Allocate new mbuf for the used descriptor */
 	error = ENOSPC;
 	int count = 0;
@@ -802,18 +806,7 @@ virtio_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
 		count++;
 	}
 
-	if (vtpci_version_1_1(hw)) {
-		struct vring_desc_1_1 *desc = vq->vq_ring.desc_1_1;
-		if (count > 0) {
-			rte_smp_wmb();
-			idx = head_idx + 1;
-			while (--count) {
-				desc[idx & (vq->vq_nentries - 1)].flags |= DESC_DRIVER;
-				idx++;
-			}
-			desc[head_idx & (vq->vq_nentries - 1)].flags |= DESC_DRIVER;
-		}
-	} else if (likely(nb_enqueued)) {
+	if (likely(nb_enqueued)) {
 		vq_update_avail_idx(vq);
 
 		if (unlikely(virtqueue_kick_prepare(vq))) {
