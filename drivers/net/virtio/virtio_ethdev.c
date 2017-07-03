@@ -1241,7 +1241,10 @@ static void
 rx_func_get(struct rte_eth_dev *eth_dev)
 {
 	struct virtio_hw *hw = eth_dev->data->dev_private;
-	if (0 && vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF))
+
+	if (vtpci_version_1_1(hw))
+		eth_dev->rx_pkt_burst = &virtio_recv_pkts_1_1;
+	else if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF))
 		eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts;
 	else
 		eth_dev->rx_pkt_burst = &virtio_recv_pkts;
