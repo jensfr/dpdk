@@ -80,42 +80,6 @@ virtio_xmit_cleanup(struct virtqueue *vq)
 	}
 }
 
-static inline void
-virtio_xmit(struct virtnet_tx *txvq, struct rte_mbuf *mbuf, int first_mbuf)
-{
-	struct virtio_tx_region *txr = txvq->virtio_net_hdr_mz->addr;
-	struct virtqueue *vq = txvq->vq;
-	struct vring_desc_1_1 *desc = vq->vq_ring.desc_1_1;
-	uint16_t idx;
-	uint16_t head_idx = (vq->vq_avail_idx++) & (vq->vq_nentries - 1);
-	struct vq_desc_extra *dxp;
-
-	idx = head_idx;
-	vq->vq_free_cnt -= mbuf->nb_segs + 1;
-
-	dxp = &vq->vq_descx[idx];
-	if (dxp->cookie != NULL)
-		rte_pktmbuf_free(dxp->cookie);
-	dxp->cookie = mbuf;
-
-	desc[idx].addr  = txvq->virtio_net_hdr_mem +
-			  RTE_PTR_DIFF(&txr[idx].tx_hdr, txr);
-	desc[idx].len   = vq->hw->vtnet_hdr_size;
-	desc[idx].flags = VRING_DESC_F_NEXT;
-	if (!first_mbuf)
-		desc[idx].flags |= DESC_HW;
-
-	do {
-		idx = (vq->vq_avail_idx++) & (vq->vq_nentries - 1);
-		desc[idx].addr  = VIRTIO_MBUF_DATA_DMA_ADDR(mbuf, vq);
-		desc[idx].len   = mbuf->data_len;
-		desc[idx].flags = DESC_HW | VRING_DESC_F_NEXT;
-	} while ((mbuf = mbuf->next) != NULL);
-
-	desc[idx].flags &= ~VRING_DESC_F_NEXT;
-
-}
-
 uint16_t
 virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts)
 {
@@ -123,6 +87,9 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 	struct virtqueue *vq = txvq->vq;
 	uint16_t i;
 	uint16_t head_idx = vq->vq_avail_idx;
+	struct vring_desc_1_1 *desc = vq->vq_ring.desc_1_1;
+	uint16_t idx;
+	struct vq_desc_extra *dxp;
 
 	if (unlikely(nb_pkts < 1))
 		return nb_pkts;
@@ -134,6 +101,7 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 
 	for (i = 0; i < nb_pkts; i++) {
 		struct rte_mbuf *txm = tx_pkts[i];
+		struct virtio_tx_region *txr = txvq->virtio_net_hdr_mz->addr;
 
 		if (unlikely(txm->nb_segs + 1 > vq->vq_free_cnt)) {
 			virtio_xmit_cleanup(vq);
@@ -145,8 +113,31 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 			}
 		}
 
-		virtio_xmit(txvq, txm, i == 0);
 		txvq->stats.bytes += txm->pkt_len;
+
+		vq->vq_free_cnt -= txm->nb_segs + 1;
+
+		idx = (vq->vq_avail_idx++) & (vq->vq_nentries - 1);
+		dxp = &vq->vq_descx[idx];
+		if (dxp->cookie != NULL)
+			rte_pktmbuf_free(dxp->cookie);
+		dxp->cookie = txm;
+
+		desc[idx].addr  = txvq->virtio_net_hdr_mem +
+				  RTE_PTR_DIFF(&txr[idx].tx_hdr, txr);
+		desc[idx].len   = vq->hw->vtnet_hdr_size;
+		desc[idx].flags = VRING_DESC_F_NEXT;
+		if (i != 0)
+			desc[idx].flags |= DESC_HW;
+
+		do {
+			idx = (vq->vq_avail_idx++) & (vq->vq_nentries - 1);
+			desc[idx].addr  = VIRTIO_MBUF_DATA_DMA_ADDR(txm, vq);
+			desc[idx].len   = txm->data_len;
+			desc[idx].flags = DESC_HW | VRING_DESC_F_NEXT;
+		} while ((txm = txm->next) != NULL);
+
+		desc[idx].flags &= ~VRING_DESC_F_NEXT;
 	}
 
 	if (likely(i)) {
