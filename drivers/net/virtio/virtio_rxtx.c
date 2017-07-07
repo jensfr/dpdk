@@ -138,9 +138,7 @@ virtqueue_dequeue_burst_rx(struct virtqueue *vq, struct rte_mbuf **rx_pkts,
 		}
 
 		rte_prefetch0(cookie);
-#if 0
 		rte_packet_prefetch(rte_pktmbuf_mtod(cookie, void *));
-#endif
 		rx_pkts[i]  = cookie;
 		vq->vq_used_cons_idx++;
 		vq_ring_free_chain(vq, desc_idx);
@@ -484,9 +482,7 @@ static void
 virtio_update_packet_stats(struct virtnet_stats *stats, struct rte_mbuf *mbuf)
 {
 	uint32_t s = mbuf->pkt_len;
-#if 0
 	struct ether_addr *ea;
-#endif
 
 	if (s == 64) {
 		stats->size_bins[1]++;
@@ -505,7 +501,6 @@ virtio_update_packet_stats(struct virtnet_stats *stats, struct rte_mbuf *mbuf)
 			stats->size_bins[7]++;
 	}
 
-#if 0
 	ea = rte_pktmbuf_mtod(mbuf, struct ether_addr *);
 	if (is_multicast_ether_addr(ea)) {
 		if (is_broadcast_ether_addr(ea))
@@ -513,7 +508,6 @@ virtio_update_packet_stats(struct virtnet_stats *stats, struct rte_mbuf *mbuf)
 		else
 			stats->multicast++;
 	}
-#endif
 }
 
 /* Optionally fill offload information in structure */
@@ -635,6 +629,9 @@ virtio_recv_pkts_1_1(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts
 		}
 
 		dxp = &vq->vq_descx[used_idx & (vq->vq_nentries - 1)];
+
+		rte_packet_prefetch(rte_pktmbuf_mtod(
+				(struct rte_mbuf *)dxp->cookie, void *));
 
 		len = desc->len;
 		rxm = dxp->cookie;
