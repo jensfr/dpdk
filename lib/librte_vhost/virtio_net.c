@@ -1440,6 +1440,7 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 
 	vq->last_used_idx = desc_idx;
 	if (likely(i)) {
+		rte_prefetch0(&desc[head_idx & (vq->size - 1)]);
 		for (desc_idx = head_idx + 1;
 		     desc_idx != vq->last_used_idx;
 		     desc_idx++) {
