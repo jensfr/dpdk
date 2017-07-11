@@ -63,21 +63,28 @@
 #include "virtio_rxtx.h"
 
 /* Cleanup from completed transmits. */
-static void
+static inline int
 virtio_xmit_cleanup(struct virtqueue *vq)
 {
-	uint16_t idx;
-	uint16_t size = vq->vq_nentries;
+	uint16_t clean_to, idx;
+	uint16_t mask = vq->vq_nentries - 1;
 	struct vring_desc_1_1 *desc = vq->vq_ring.desc_1_1;
+	uint16_t last_cleaned = vq->vq_used_cons_idx - 1;
 
-	idx = vq->vq_used_cons_idx & (size - 1);
-	while ((desc[idx].flags & DESC_HW) == 0) {
-		idx = (++vq->vq_used_cons_idx) & (size - 1);
-		vq->vq_free_cnt++;
-
-		if (vq->vq_free_cnt >= size)
-			break;
+	clean_to = last_cleaned + vq->vq_rs_thresh;
+	if ((desc[clean_to & mask].flags & DESC_HW) != 0) {
+		PMD_TX_LOG(DEBUG, "TX descriptor %d is not done",
+			clean_to & mask);
+		return -1;
 	}
+
+	for (idx = last_cleaned + 2; idx < clean_to; idx++)
+		desc[idx & mask].flags &= ~DESC_HW;
+
+	vq->vq_used_cons_idx = clean_to + 1;
+	vq->vq_free_cnt += vq->vq_rs_thresh;
+
+	return 0;
 }
 
 uint16_t
@@ -90,6 +97,7 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 	struct vring_desc_1_1 *desc = vq->vq_ring.desc_1_1;
 	uint16_t idx;
 	struct vq_desc_extra *dxp;
+	uint16_t nb_needed, nb_used = vq->vq_nb_used;
 
 	if (unlikely(nb_pkts < 1))
 		return nb_pkts;
@@ -103,19 +111,23 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 		struct rte_mbuf *txm = tx_pkts[i];
 		struct virtio_tx_region *txr = txvq->virtio_net_hdr_mz->addr;
 
-		if (unlikely(txm->nb_segs + 1 > vq->vq_free_cnt)) {
-			virtio_xmit_cleanup(vq);
+		nb_needed = txm->nb_segs + 1;
 
-			if (unlikely(txm->nb_segs + 1 > vq->vq_free_cnt)) {
-				PMD_TX_LOG(ERR,
-					   "No free tx descriptors to transmit");
-				break;
+		if (unlikely(nb_needed > vq->vq_free_cnt)) {
+			if (unlikely(virtio_xmit_cleanup(vq) != 0))
+				goto end_of_tx;
+
+			if (unlikely(nb_needed > vq->vq_rs_thresh)) {
+				while (nb_needed > vq->vq_free_cnt) {
+					if (virtio_xmit_cleanup(vq) != 0)
+						goto end_of_tx;
+				}
 			}
 		}
 
 		txvq->stats.bytes += txm->pkt_len;
 
-		vq->vq_free_cnt -= txm->nb_segs + 1;
+		vq->vq_free_cnt -= nb_needed;
 
 		idx = (vq->vq_avail_idx++) & (vq->vq_nentries - 1);
 		dxp = &vq->vq_descx[idx];
@@ -129,21 +141,30 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 		desc[idx].flags = VRING_DESC_F_NEXT;
 		if (i != 0)
 			desc[idx].flags |= DESC_HW;
+		nb_used = (nb_used + 1) & ~vq->vq_rs_thresh;
+		if (nb_used == 0 || nb_used == 1)
+			desc[idx].flags |= DESC_WB;
 
 		do {
 			idx = (vq->vq_avail_idx++) & (vq->vq_nentries - 1);
 			desc[idx].addr  = VIRTIO_MBUF_DATA_DMA_ADDR(txm, vq);
 			desc[idx].len   = txm->data_len;
 			desc[idx].flags = DESC_HW | VRING_DESC_F_NEXT;
+			nb_used = (nb_used + 1) & ~vq->vq_rs_thresh;
+			if (nb_used == 0 || nb_used == 1)
+				desc[idx].flags |= DESC_WB;
 		} while ((txm = txm->next) != NULL);
 
 		desc[idx].flags &= ~VRING_DESC_F_NEXT;
 	}
 
+end_of_tx:
 	if (likely(i)) {
 		rte_smp_wmb();
 		vq->vq_ring.desc_1_1[head_idx & (vq->vq_nentries - 1)].flags |= DESC_HW;
 	}
+
+	vq->vq_nb_used = nb_used;
 
 	txvq->stats.packets += i;
 	txvq->stats.errors  += nb_pkts - i;

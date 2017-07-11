@@ -193,6 +193,8 @@ struct virtqueue {
 	uint16_t vq_free_cnt;  /**< num of desc available */
 	uint16_t vq_avail_idx; /**< sync until needed */
 	uint16_t vq_free_thresh; /**< free threshold */
+	uint16_t vq_rs_thresh; /**< RS threshold */
+	uint16_t vq_nb_used ;  /**< num of unreported desc */
 
 	void *vq_ring_virt_mem;  /**< linear address of vring*/
 	unsigned int vq_ring_size;

@@ -151,6 +151,10 @@ virtqueue_dequeue_burst_rx(struct virtqueue *vq, struct rte_mbuf **rx_pkts,
 #define DEFAULT_TX_FREE_THRESH 32
 #endif
 
+#ifndef DEFAULT_TX_RS_THRESH
+#define DEFAULT_TX_RS_THRESH 32
+#endif
+
 /* Cleanup from completed transmits. */
 static void
 virtio_xmit_cleanup(struct virtqueue *vq, uint16_t num)
@@ -414,6 +418,7 @@ virtio_dev_tx_queue_setup(struct rte_eth_dev *dev,
 	struct virtqueue *vq = hw->vqs[vtpci_queue_idx];
 	struct virtnet_tx *txvq;
 	uint16_t tx_free_thresh;
+	uint16_t tx_rs_thresh;
 
 	PMD_INIT_FUNC_TRACE();
 
@@ -432,6 +437,9 @@ virtio_dev_tx_queue_setup(struct rte_eth_dev *dev,
 	if (tx_free_thresh == 0)
 		tx_free_thresh =
 			RTE_MIN(vq->vq_nentries / 4, DEFAULT_TX_FREE_THRESH);
+	tx_rs_thresh = tx_conf->tx_rs_thresh;
+	if (tx_rs_thresh == 0)
+		tx_rs_thresh = DEFAULT_TX_RS_THRESH;
 
 	if (tx_free_thresh >= (vq->vq_nentries - 3)) {
 		RTE_LOG(ERR, PMD, "tx_free_thresh must be less than the "
@@ -442,7 +450,13 @@ virtio_dev_tx_queue_setup(struct rte_eth_dev *dev,
 		return -EINVAL;
 	}
 
+	if (!rte_is_power_of_2(tx_free_thresh)) {
+		RTE_LOG(ERR, PMD, "tx_free_thresh is not powerof 2");
+		return -EINVAL;
+	}
+
 	vq->vq_free_thresh = tx_free_thresh;
+	vq->vq_rs_thresh = tx_rs_thresh;
 
 	dev->data->tx_queues[queue_idx] = txvq;
 	return 0;

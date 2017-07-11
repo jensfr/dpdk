@@ -1281,7 +1281,8 @@ mbuf_is_consumed(struct rte_mbuf *m)
 static inline uint16_t __attribute__((always_inline))
 dequeue_desc(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	     struct rte_mempool *mbuf_pool, struct rte_mbuf *m,
-	     struct vring_desc_1_1 *descs, uint16_t *desc_idx)
+	     struct vring_desc_1_1 *descs, uint16_t *desc_idx,
+	     struct vring_desc_1_1 **dps, uint16_t *_cnt)
 {
 	struct vring_desc_1_1 *desc;
 	uint64_t desc_addr;
@@ -1291,6 +1292,7 @@ dequeue_desc(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	struct rte_mbuf *cur = m, *prev = m;
 	struct virtio_net_hdr *hdr = NULL;
 	uint16_t head_idx = *desc_idx;
+	uint16_t cnt = *_cnt;
 
 	desc = &descs[(head_idx++) & (vq->size - 1)];
 	if (unlikely((desc->len < dev->vhost_hlen)) ||
@@ -1313,6 +1315,9 @@ dequeue_desc(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	 */
 	if (likely((desc->len == dev->vhost_hlen) &&
 		   (desc->flags & VRING_DESC_F_NEXT) != 0)) {
+		if (desc->flags & DESC_WB)
+			dps[cnt++] = desc;
+
 		desc = &descs[(head_idx++) & (vq->size - 1)];
 		if (unlikely(desc->flags & VRING_DESC_F_INDIRECT))
 			return -1;
@@ -1352,6 +1357,9 @@ dequeue_desc(struct virtio_net *dev, struct vhost_virtqueue *vq,
 		if (desc_avail == 0) {
 			if ((desc->flags & VRING_DESC_F_NEXT) == 0)
 				break;
+
+			if (desc->flags & DESC_WB)
+				dps[cnt++] = desc;
 
 			desc = &descs[(head_idx++) & (vq->size - 1)];
 			if (unlikely(desc->flags & VRING_DESC_F_INDIRECT))
@@ -1398,7 +1406,11 @@ dequeue_desc(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	if (hdr)
 		vhost_dequeue_offload(hdr, m);
 
+	if (desc->flags & DESC_WB)
+		dps[cnt++] = desc;
+
 	*desc_idx = head_idx;
+	*_cnt = cnt;
 
 	return 0;
 }
@@ -1410,7 +1422,8 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 {
 	uint16_t i;
 	struct vring_desc_1_1 *desc = vq->desc_1_1;
-	uint16_t head_idx = vq->last_used_idx;
+	struct vring_desc_1_1 *dps[64];
+	uint16_t cnt = 0;
 	uint16_t desc_idx;
 	int err;
 
@@ -1431,26 +1444,22 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 			break;
 		}
 
-		err = dequeue_desc(dev, vq, mbuf_pool, pkts[i], desc, &desc_idx);
+		err = dequeue_desc(dev, vq, mbuf_pool, pkts[i], desc,
+				   &desc_idx, dps, &cnt);
 		if (unlikely(err)) {
 			rte_pktmbuf_free(pkts[i]);
 			break;
 		}
 	}
+	count = i;
 
 	vq->last_used_idx = desc_idx;
-	if (likely(i)) {
-		rte_prefetch0(&desc[head_idx & (vq->size - 1)]);
-		for (desc_idx = head_idx + 1;
-		     desc_idx != vq->last_used_idx;
-		     desc_idx++) {
-			desc[desc_idx & (vq->size - 1)].flags = 0;
-		}
-		rte_smp_wmb();
-		desc[head_idx & (vq->size - 1)].flags = 0;
-	}
 
-	return i;
+	rte_smp_wmb();
+	for (i = 0; i < cnt; i++)
+		dps[i]->flags = 0;
+
+	return count;
 }
 
 uint16_t
