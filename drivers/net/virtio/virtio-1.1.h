@@ -8,6 +8,7 @@
 #define BATCH_NOT_FIRST 0x0010
 #define BATCH_NOT_LAST  0x0020
 #define DESC_HW		0x0080
+#define DESC_WB		0x0100
 
 struct vring_desc_1_1 {
         uint64_t addr;
