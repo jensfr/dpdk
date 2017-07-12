@@ -57,7 +57,6 @@
 	 1u << VIRTIO_NET_F_CTRL_MAC_ADDR |	\
 	 1u << VIRTIO_NET_F_CTRL_VQ	  |	\
 	 1u << VIRTIO_NET_F_CTRL_RX	  |	\
-	 1u << VIRTIO_NET_F_MRG_RXBUF	  |	\
 */
 /* Features desired/implemented by this driver. */
 #define VIRTIO_PMD_DEFAULT_GUEST_FEATURES	\

@@ -719,13 +719,14 @@ rte_vhost_enqueue_burst(int vid, uint16_t queue_id,
 
 	if (!dev)
 		return 0;
+	return vhost_enqueue_burst_1_1(dev, queue_id, pkts, count);
 
-	if (dev->features & (1ULL << VIRTIO_F_VERSION_1_1))
-		return vhost_enqueue_burst_1_1(dev, queue_id, pkts, count);
-	else if (dev->features & (1 << VIRTIO_NET_F_MRG_RXBUF))
-		return virtio_dev_merge_rx(dev, queue_id, pkts, count);
-	else
-		return virtio_dev_rx(dev, queue_id, pkts, count);
+//	if (dev->features & (1ULL << VIRTIO_F_VERSION_1_1))
+//		return vhost_enqueue_burst_1_1(dev, queue_id, pkts, count);
+//	else if (dev->features & (1 << VIRTIO_NET_F_MRG_RXBUF))
+//		return virtio_dev_merge_rx(dev, queue_id, pkts, count);
+//	else
+//		return virtio_dev_rx(dev, queue_id, pkts, count);
 }
 
 static inline bool
@@ -837,6 +838,7 @@ vhost_dequeue_offload(struct virtio_net_hdr *hdr, struct rte_mbuf *m)
 
 #define RARP_PKT_SIZE	64
 
+#if 0
 static int
 make_rarp_packet(struct rte_mbuf *rarp_mbuf, const struct ether_addr *mac)
 {
@@ -873,6 +875,7 @@ make_rarp_packet(struct rte_mbuf *rarp_mbuf, const struct ether_addr *mac)
 
 	return 0;
 }
+#endif
 
 static inline void __attribute__((always_inline))
 put_zmbuf(struct zcopy_mbuf *zmbuf)
@@ -1283,13 +1286,13 @@ rte_vhost_dequeue_burst(int vid, uint16_t queue_id,
 	struct rte_mempool *mbuf_pool, struct rte_mbuf **pkts, uint16_t count)
 {
 	struct virtio_net *dev;
-	struct rte_mbuf *rarp_mbuf = NULL;
+	//struct rte_mbuf *rarp_mbuf = NULL;
 	struct vhost_virtqueue *vq;
-	uint32_t desc_indexes[MAX_PKT_BURST];
-	uint32_t used_idx;
-	uint32_t i = 0;
-	uint16_t free_entries;
-	uint16_t avail_idx;
+	//uint32_t desc_indexes[MAX_PKT_BURST];
+	//uint32_t used_idx;
+	//uint32_t i = 0;
+	//uint16_t free_entries;
+	//uint16_t avail_idx;
 
 	dev = get_device(vid);
 	if (!dev)
@@ -1305,9 +1308,10 @@ rte_vhost_dequeue_burst(int vid, uint16_t queue_id,
 	if (unlikely(vq->enabled == 0))
 		return 0;
 
-	if (dev->features & (1ULL << VIRTIO_F_VERSION_1_1))
-		return vhost_dequeue_burst_1_1(dev, vq, mbuf_pool, pkts, count);
-
+//	if (dev->features & (1ULL << VIRTIO_F_VERSION_1_1))
+//	FIXME
+	return vhost_dequeue_burst_1_1(dev, vq, mbuf_pool, pkts, count);
+#if 0
 	if (unlikely(dev->dequeue_zero_copy)) {
 		struct zcopy_mbuf *zmbuf, *next;
 		int nr_updated = 0;
@@ -1476,4 +1480,6 @@ out:
 	}
 
 	return i;
+#endif
 }
+
