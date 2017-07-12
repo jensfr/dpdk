@@ -192,10 +192,10 @@ static inline uint16_t
 virtqueue_dequeue_burst_rx(struct virtqueue *vq, struct rte_mbuf **rx_pkts,
 			   uint32_t *len, uint16_t num)
 {
-	if (vtpci_version_1_1(vq->hw))
+//	if (vtpci_version_1_1(vq->hw))
 		return virtqueue_dequeue_burst_rx_1_1(vq, rx_pkts, len, num);
-	else
-		return virtqueue_dequeue_burst_rx_1_0(vq, rx_pkts, len, num);
+//	else
+//		return virtqueue_dequeue_burst_rx_1_0(vq, rx_pkts, len, num);
 }
 
 #ifndef DEFAULT_TX_FREE_THRESH

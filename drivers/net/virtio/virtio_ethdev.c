@@ -1581,10 +1581,10 @@ eth_virtio_dev_init(struct rte_eth_dev *eth_dev)
 		return ret;
 
 	/* FIXME: as second process? */
-	if (vtpci_version_1_1(hw))
+//	if (vtpci_version_1_1(hw))
 		eth_dev->tx_pkt_burst = &virtio_xmit_pkts_1_1;
-	else
-		eth_dev->tx_pkt_burst = &virtio_xmit_pkts;
+//	else
+//		eth_dev->tx_pkt_burst = &virtio_xmit_pkts;
 
 	/* Setup interrupt callback  */
 	if (eth_dev->data->dev_flags & RTE_ETH_DEV_INTR_LSC)

@@ -140,15 +140,17 @@ struct vhost_virtqueue {
  #define VIRTIO_F_VERSION_1 32
 #endif
 #ifndef VIRTIO_F_VERSION_1_1
- #define VIRTIO_F_VERSION_1_1 34
+ #define VIRTIO_F_VERSION_1_1 31
 #endif
 
 #define VHOST_USER_F_PROTOCOL_FEATURES	30
 
-/* Features supported by this builtin vhost-user net driver. */
-#define VIRTIO_NET_SUPPORTED_FEATURES ( \
+/*
 				(1ULL << VIRTIO_NET_F_CTRL_VQ) | \
 				(1ULL << VIRTIO_NET_F_CTRL_RX) | \
+*/
+/* Features supported by this builtin vhost-user net driver. */
+#define VIRTIO_NET_SUPPORTED_FEATURES ( \
 				(1ULL << VIRTIO_NET_F_GUEST_ANNOUNCE) | \
 				(1ULL << VIRTIO_NET_F_MQ)      | \
 				(1ULL << VIRTIO_F_VERSION_1)   | \

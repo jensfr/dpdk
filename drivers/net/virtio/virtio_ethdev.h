@@ -53,19 +53,21 @@
 #define VIRTIO_MIN_RX_BUFSIZE 64
 #define VIRTIO_MAX_RX_PKTLEN  9728U
 
+/*
+	 1u << VIRTIO_NET_F_CTRL_MAC_ADDR |	\
+	 1u << VIRTIO_NET_F_CTRL_VQ	  |	\
+	 1u << VIRTIO_NET_F_CTRL_RX	  |	\
+	 1u << VIRTIO_NET_F_MRG_RXBUF	  |	\
+*/
 /* Features desired/implemented by this driver. */
 #define VIRTIO_PMD_DEFAULT_GUEST_FEATURES	\
 	(1u << VIRTIO_NET_F_MAC		  |	\
 	 1u << VIRTIO_NET_F_STATUS	  |	\
 	 1u << VIRTIO_NET_F_MQ		  |	\
-	 1u << VIRTIO_NET_F_CTRL_MAC_ADDR |	\
-	 1u << VIRTIO_NET_F_CTRL_VQ	  |	\
-	 1u << VIRTIO_NET_F_CTRL_RX	  |	\
 	 1u << VIRTIO_NET_F_CTRL_VLAN	  |	\
 	 1u << VIRTIO_NET_F_CSUM	  |	\
 	 1u << VIRTIO_NET_F_HOST_TSO4	  |	\
 	 1u << VIRTIO_NET_F_HOST_TSO6	  |	\
-	 1u << VIRTIO_NET_F_MRG_RXBUF	  |	\
 	 1u << VIRTIO_NET_F_MTU	| \
 	 1u << VIRTIO_RING_F_INDIRECT_DESC |    \
 	 1ULL << VIRTIO_F_VERSION_1       |	\

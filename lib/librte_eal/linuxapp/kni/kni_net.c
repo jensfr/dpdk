@@ -212,7 +212,7 @@ kni_net_tx(struct sk_buff *skb, struct net_device *dev)
 #ifdef HAVE_TRANS_START_HELPER
 	netif_trans_update(dev);
 #else
-	dev->trans_start = jiffies;
+	//dev->trans_start = jiffies;
 #endif
 
 	/* Check if the length of skb is less than mbuf size */
