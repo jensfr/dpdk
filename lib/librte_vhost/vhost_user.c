@@ -189,6 +189,14 @@ vhost_user_set_features(struct virtio_net *dev, uint64_t features)
 		(dev->features & (1 << VIRTIO_NET_F_MRG_RXBUF)) ? "on" : "off",
 		(dev->features & (1ULL << VIRTIO_F_VERSION_1)) ? "on" : "off");
 
+	if (dev->features & (1ULL << VIRTIO_F_VERSION_1_1))
+		dev->enqueue_burst = vhost_enqueue_burst_1_1;
+	else if (dev->features & (1 << VIRTIO_NET_F_MRG_RXBUF))
+		dev->enqueue_burst = virtio_dev_merge_rx;
+	else
+		dev->enqueue_burst = virtio_dev_rx;
+
+
 	return 0;
 }
 

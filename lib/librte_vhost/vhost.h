@@ -198,11 +198,27 @@ struct virtio_net {
 
 	struct vhost_device_ops const *notify_ops;
 
+	uint32_t (*enqueue_burst) (struct virtio_net *, uint16_t,
+	      struct rte_mbuf **, uint32_t);
+
+
 	uint32_t		nr_guest_pages;
 	uint32_t		max_guest_pages;
 	struct guest_page       *guest_pages;
 } __rte_cache_aligned;
 
+
+uint32_t 
+vhost_enqueue_burst_1_1(struct virtio_net *, uint16_t,
+	      struct rte_mbuf **, uint32_t);
+
+uint32_t
+virtio_dev_rx(struct virtio_net *, uint16_t,
+	      struct rte_mbuf **, uint32_t);
+
+uint32_t
+virtio_dev_merge_rx(struct virtio_net *, uint16_t,
+	struct rte_mbuf **, uint32_t);
 
 #define VHOST_LOG_PAGE	4096
 

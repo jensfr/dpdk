@@ -238,7 +238,7 @@ copy_mbuf_to_desc(struct virtio_net *dev, struct vring_desc *descs,
  * added to the RX queue. This function works when the mbuf is scattered, but
  * it doesn't support the mergeable feature.
  */
-static inline uint32_t __attribute__((always_inline))
+uint32_t
 virtio_dev_rx(struct virtio_net *dev, uint16_t queue_id,
 	      struct rte_mbuf **pkts, uint32_t count)
 {
@@ -513,7 +513,7 @@ copy_mbuf_to_desc_mergeable(struct virtio_net *dev, struct rte_mbuf *m,
 	return 0;
 }
 
-static inline uint32_t __attribute__((always_inline))
+uint32_t
 virtio_dev_merge_rx(struct virtio_net *dev, uint16_t queue_id,
 	struct rte_mbuf **pkts, uint32_t count)
 {
@@ -583,7 +583,7 @@ virtio_dev_merge_rx(struct virtio_net *dev, uint16_t queue_id,
 	return pkt_idx;
 }
 
-static inline uint32_t __attribute__((always_inline))
+uint32_t
 vhost_enqueue_burst_1_1(struct virtio_net *dev, uint16_t queue_id,
 	      struct rte_mbuf **pkts, uint32_t count)
 {
@@ -711,12 +711,7 @@ rte_vhost_enqueue_burst(int vid, uint16_t queue_id,
 	if (!dev)
 		return 0;
 
-	if (dev->features & (1ULL << VIRTIO_F_VERSION_1_1))
-		return vhost_enqueue_burst_1_1(dev, queue_id, pkts, count);
-	else if (dev->features & (1 << VIRTIO_NET_F_MRG_RXBUF))
-		return virtio_dev_merge_rx(dev, queue_id, pkts, count);
-	else
-		return virtio_dev_rx(dev, queue_id, pkts, count);
+	return dev->enqueue_burst(dev, queue_id, pkts, count);
 }
 
 static inline bool
