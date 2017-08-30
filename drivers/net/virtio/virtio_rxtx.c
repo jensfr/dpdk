@@ -649,13 +649,14 @@ virtio_recv_pkts_1_1(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts
 
 	for (i = 0; i < nb_pkts; i++) {
 		desc = &descs[used_idx & (vq->vq_nentries - 1)];
-		if (desc->flags & DESC_HW)
+		printf("received idx %d, flags %x\n", used_idx & (vq->vq_nentries-1), desc->flags);
+		if (desc->flags & DESC_HW) {
+			printf("desc belongs to device, break, idx = %d\n", used_idx);
 			break;
-		skip_hdr = (desc->flags & DESC_SKIP_HDR) && offload;
-		if (skip_hdr)
+		}
+		skip_hdr = (desc->flags & DESC_SKIP_HDR) && !offload;
+		if (desc->flags & DESC_SKIP_HDR)
 			printf("skip hdr set, used idx %d\n", used_idx);
-		else
-			printf("no skip hdr set, used idx %d\n", used_idx);
 
 		nmb = rte_mbuf_raw_alloc(rxvq->mpool);
 		if (unlikely(nmb == NULL)) {

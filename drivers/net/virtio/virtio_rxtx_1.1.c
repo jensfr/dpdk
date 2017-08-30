@@ -100,6 +100,7 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 		virtio_xmit_cleanup(vq);
 
 	for (i = 0; i < nb_pkts; i++) {
+		printf("i = %d\n", i);
 		struct rte_mbuf *txm = tx_pkts[i];
 		struct virtio_tx_region *txr = txvq->virtio_net_hdr_mz->addr;
 
@@ -129,7 +130,8 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 		desc[idx].flags = VRING_DESC_F_NEXT;
 		if (i != 0) {
 			desc[idx].flags |= DESC_HW;
-			desc[idx].flags |= DESC_SKIP_HDR;
+			printf("virtio net header desc idx %d, flags %x\n", idx, desc[idx].flags);
+
 		}
 
 		do {
@@ -137,6 +139,7 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 			desc[idx].addr  = VIRTIO_MBUF_DATA_DMA_ADDR(txm, vq);
 			desc[idx].len   = txm->data_len;
 			desc[idx].flags = DESC_HW | VRING_DESC_F_NEXT | DESC_SKIP_HDR;
+			printf("idx = %d, desc idx len = %d, txm->len = %d, flags %x\n", idx, desc[idx].len, txm->data_len, desc[idx].flags);
 		} while ((txm = txm->next) != NULL);
 
 		desc[idx].flags &= ~VRING_DESC_F_NEXT;
@@ -145,6 +148,7 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 	if (likely(i)) {
 		rte_smp_wmb();
 		vq->vq_ring.desc_1_1[head_idx & (vq->vq_nentries - 1)].flags |= (DESC_HW | DESC_SKIP_HDR);
+			printf("head_idx = %d, flags %x\n", head_idx & (vq->vq_nentries-1), vq->vq_ring.desc_1_1[head_idx & (vq->vq_nentries-1).flags);
 	}
 
 	txvq->stats.packets += i;
