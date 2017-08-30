@@ -689,7 +689,7 @@ end_of_tx:
 	count = i;
 
 	if (count) {
-		for (i = 1; i < count; i++) {
+		for (i = count-1; i > 0; i--) {
 			idx = (head_idx + i) & mask;
 			descs[idx].len = pkts[i]->pkt_len + dev->vhost_hlen;
 			descs[idx].flags &= ~DESC_HW;
