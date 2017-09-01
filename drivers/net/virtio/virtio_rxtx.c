@@ -546,6 +546,9 @@ virtio_rx_offload(struct rte_mbuf *m, struct virtio_net_hdr *hdr)
 	uint32_t hdrlen, ptype;
 	int l4_supported = 0;
 
+	if (!hdr)
+		return -EINVAL;
+
 	/* nothing to do */
 	if (hdr->flags == 0 && hdr->gso_type == VIRTIO_NET_HDR_GSO_NONE)
 		return 0;
@@ -630,11 +633,12 @@ virtio_recv_pkts_1_1(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts
 	uint32_t i;
 	uint32_t hdr_size;
 	int offload;
-	struct virtio_net_hdr *hdr;
+	struct virtio_net_hdr *hdr = NULL;
 	struct vring_desc_1_1 *descs = vq->vq_ring.desc_1_1;
 	struct vring_desc_1_1 *desc;
 	uint16_t used_idx = vq->vq_used_cons_idx;
 	struct vq_desc_extra *dxp;
+	int skip_hdr = 0;
 
 	nb_rx = 0;
 	if (unlikely(hw->started == 0))
@@ -647,6 +651,11 @@ virtio_recv_pkts_1_1(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts
 		desc = &descs[used_idx & (vq->vq_nentries - 1)];
 		if (desc->flags & DESC_HW)
 			break;
+		skip_hdr = (desc->flags & DESC_SKIP_HDR) && offload;
+		if (skip_hdr)
+			printf("skip hdr set, used idx %d\n", used_idx);
+		else
+			printf("no skip hdr set, used idx %d\n", used_idx);
 
 		nmb = rte_mbuf_raw_alloc(rxvq->mpool);
 		if (unlikely(nmb == NULL)) {
@@ -686,16 +695,20 @@ virtio_recv_pkts_1_1(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts
 		rxm->ol_flags = 0;
 		rxm->vlan_tci = 0;
 
-		rxm->pkt_len = (uint32_t)(len - hdr_size);
-		rxm->data_len = (uint16_t)(len - hdr_size);
-
-		hdr = (struct virtio_net_hdr *)((char *)rxm->buf_addr +
-			RTE_PKTMBUF_HEADROOM - hdr_size);
+		if (!skip_hdr) {
+			rxm->pkt_len = (uint32_t)(len - hdr_size);
+			rxm->data_len = (uint16_t)(len - hdr_size);
+			hdr = (struct virtio_net_hdr *)((char *)rxm->buf_addr +
+				RTE_PKTMBUF_HEADROOM - hdr_size);
+		} else {
+			rxm->pkt_len = (uint32_t) len;
+			rxm->data_len = (uint16_t) len;
+		}
 
 		if (hw->vlan_strip)
 			rte_vlan_strip(rxm);
 
-		if (offload && virtio_rx_offload(rxm, hdr) < 0) {
+		if (!skip_hdr && offload && virtio_rx_offload(rxm, hdr) < 0) {
 			rte_pktmbuf_free(rxm);
 			rxvq->stats.errors++;
 			continue;
