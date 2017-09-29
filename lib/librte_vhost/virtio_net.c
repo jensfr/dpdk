@@ -602,8 +602,8 @@ vhost_enqueue_burst_1_1(struct virtio_net *dev, uint16_t queue_id,
 	head_idx = vq->last_used_idx & mask;
 
 	for (i = 0; i < count; i++) {
-		uint32_t desc_avail, desc_offset;
-		uint32_t mbuf_avail, mbuf_offset;
+		uint32_t desc_avail, desc_offset = 0;
+		uint32_t mbuf_avail, mbuf_offset = 0;
 		uint32_t cpy_len;
 		struct vring_desc_1_1 *desc;
 		uint64_t desc_addr;
@@ -627,12 +627,18 @@ vhost_enqueue_burst_1_1(struct virtio_net *dev, uint16_t queue_id,
 			break;
 
 		hdr = (struct virtio_net_hdr_mrg_rxbuf *)(uintptr_t)desc_addr;
-		virtio_enqueue_offload(m, &hdr->hdr);
+
+		if (!(desc->flags & DESC_SKIP_HDR)) {
+			virtio_enqueue_offload(m, &hdr->hdr);
+			desc_offset = dev->vhost_hlen;
+			desc_avail  = desc->len - dev->vhost_hlen;
+		} else {
+			desc_offset = 0;
+			desc_avail = desc->len;
+		}
+
 		vhost_log_write(dev, desc->addr, dev->vhost_hlen);
 		PRINT_PACKET(dev, (uintptr_t)desc_addr, dev->vhost_hlen, 0);
-
-		desc_offset = dev->vhost_hlen;
-		desc_avail  = desc->len - dev->vhost_hlen;
 
 		mbuf_avail  = rte_pktmbuf_data_len(m);
 		mbuf_offset = 0;
@@ -669,9 +675,15 @@ vhost_enqueue_burst_1_1(struct virtio_net *dev, uint16_t queue_id,
 			}
 
 			cpy_len = RTE_MIN(desc_avail, mbuf_avail);
-			rte_memcpy((void *)((uintptr_t)(desc_addr + desc_offset)),
-				rte_pktmbuf_mtod_offset(m, void *, mbuf_offset),
-				cpy_len);
+			if (desc->flags & DESC_SKIP_HDR) {
+				rte_memcpy((void*)((uintptr_t)(desc_addr)),
+					   rte_pktmbuf_mtod_offset(m, void *, mbuf_offset),
+					   cpy_len);
+			} else {
+				rte_memcpy((void *)((uintptr_t)(desc_addr + desc_offset)),
+					rte_pktmbuf_mtod_offset(m, void *, mbuf_offset),
+					cpy_len);
+			}
 			vhost_log_write(dev, desc->addr + desc_offset, cpy_len);
 			PRINT_PACKET(dev, (uintptr_t)(desc_addr + desc_offset),
 				     cpy_len, 0);
