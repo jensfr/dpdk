@@ -1239,6 +1239,14 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 
 	count = RTE_MIN(MAX_PKT_BURST, count);
 
+	/* dequeue desc[desc_idx] and check id. If id > desc_idx then
+	 * check for DESC_SKIP_HDR. If set then we can assume that all descriptors
+	 * from desc_idx to desc[desc_idx]->id are ready for us (device) to consume */
+	if ((desc[desc_idx & (vq->size -1)].flags) & DESC_SKIP_HDR) {
+		count = desc[desc_idx & (vq->size-1)].index;
+		printf("set count to %d\n", count);
+	}
+
 	for (i = 0; i < count; i++) {
 		if (!(desc[desc_idx & (vq->size - 1)].flags & DESC_HW))
 			break;
@@ -1258,6 +1266,7 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	}
 
 	vq->last_used_idx = desc_idx;
+	/* clear flags from head_idx to desc[desc_idx]->id */
 	if (likely(i)) {
 		rte_prefetch0(&desc[head_idx & (vq->size - 1)]);
 		for (desc_idx = head_idx + 1;
@@ -1266,6 +1275,9 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 			desc[desc_idx & (vq->size - 1)].flags = 0;
 		}
 		rte_smp_wmb();
+		if (desc[head_idx].flags & DESC_SKIP_HDR) {
+	
+		}
 		desc[head_idx & (vq->size - 1)].flags = 0;
 	}
 

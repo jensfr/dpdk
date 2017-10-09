@@ -89,6 +89,7 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 	uint16_t head_idx = vq->vq_avail_idx;
 	struct vring_desc_1_1 *desc = vq->vq_ring.desc_1_1;
 	uint16_t idx;
+	uint16_t start_idx;
 	struct vq_desc_extra *dxp;
 
 	if (unlikely(nb_pkts < 1))
@@ -118,6 +119,7 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 		vq->vq_free_cnt -= txm->nb_segs + 1;
 
 		idx = (vq->vq_avail_idx++) & (vq->vq_nentries - 1);
+		start_idx = idx;
 		dxp = &vq->vq_descx[idx];
 		if (dxp->cookie != NULL)
 			rte_pktmbuf_free(dxp->cookie);
@@ -126,7 +128,7 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 		desc[idx].addr  = txvq->virtio_net_hdr_mem +
 				  RTE_PTR_DIFF(&txr[idx].tx_hdr, txr);
 		desc[idx].len   = vq->hw->vtnet_hdr_size;
-		desc[idx].flags = VRING_DESC_F_NEXT;
+		desc[idx].flags = VRING_DESC_F_NEXT | DESC_SKIP_HDR;
 		if (i != 0)
 			desc[idx].flags |= DESC_HW;
 
@@ -138,6 +140,7 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 		} while ((txm = txm->next) != NULL);
 
 		desc[idx].flags &= ~VRING_DESC_F_NEXT;
+		desc[start_idx].index = idx;
 	}
 
 	if (likely(i)) {
