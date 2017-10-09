@@ -71,7 +71,7 @@ virtio_xmit_cleanup(struct virtqueue *vq)
 	struct vring_desc_1_1 *desc = vq->vq_ring.desc_1_1;
 
 	idx = vq->vq_used_cons_idx & (size - 1);
-	while ((desc[idx].flags & DESC_HW) == 0) {
+	while ((desc[idx].flags & DESC_DRIVER) == 0) {
 		idx = (++vq->vq_used_cons_idx) & (size - 1);
 		vq->vq_free_cnt++;
 
@@ -79,6 +79,8 @@ virtio_xmit_cleanup(struct virtqueue *vq)
 			break;
 	}
 }
+
+static uint16_t wrap = 0;
 
 uint16_t
 virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts)
@@ -88,7 +90,7 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 	uint16_t i;
 	uint16_t head_idx = vq->vq_avail_idx;
 	struct vring_desc_1_1 *desc = vq->vq_ring.desc_1_1;
-	uint16_t idx;
+	uint16_t idx = 0;
 	struct vq_desc_extra *dxp;
 
 	if (unlikely(nb_pkts < 1))
@@ -118,6 +120,16 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 		vq->vq_free_cnt -= txm->nb_segs + 1;
 
 		idx = (vq->vq_avail_idx++) & (vq->vq_nentries - 1);
+		/* change wrap flag when we cross the ring boundary at index 0.
+		 * we want to be able to distinguish between produced and consumed
+		 * descriptors by just looking at this flag.
+		 */
+		if (idx==0) {
+			if (wrap & DESC_WRAP)
+				wrap &= ~DESC_WRAP;
+			else
+				wrap |= DESC_WRAP;
+		}
 		dxp = &vq->vq_descx[idx];
 		if (dxp->cookie != NULL)
 			rte_pktmbuf_free(dxp->cookie);
@@ -126,15 +138,15 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 		desc[idx].addr  = txvq->virtio_net_hdr_mem +
 				  RTE_PTR_DIFF(&txr[idx].tx_hdr, txr);
 		desc[idx].len   = vq->hw->vtnet_hdr_size;
-		desc[idx].flags = VRING_DESC_F_NEXT;
+		desc[idx].flags |= (VRING_DESC_F_NEXT | wrap);
 		if (i != 0)
-			desc[idx].flags |= DESC_HW;
+			desc[idx].flags |= DESC_DRIVER;
 
 		do {
 			idx = (vq->vq_avail_idx++) & (vq->vq_nentries - 1);
 			desc[idx].addr  = VIRTIO_MBUF_DATA_DMA_ADDR(txm, vq);
 			desc[idx].len   = txm->data_len;
-			desc[idx].flags = DESC_HW | VRING_DESC_F_NEXT;
+			desc[idx].flags = DESC_DRIVER | VRING_DESC_F_NEXT | wrap;
 		} while ((txm = txm->next) != NULL);
 
 		desc[idx].flags &= ~VRING_DESC_F_NEXT;
@@ -142,7 +154,7 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 
 	if (likely(i)) {
 		rte_smp_wmb();
-		vq->vq_ring.desc_1_1[head_idx & (vq->vq_nentries - 1)].flags |= DESC_HW;
+		vq->vq_ring.desc_1_1[head_idx & (vq->vq_nentries - 1)].flags |= DESC_DRIVER;
 	}
 
 	txvq->stats.packets += i;

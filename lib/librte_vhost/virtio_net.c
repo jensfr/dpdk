@@ -614,7 +614,7 @@ vhost_enqueue_burst_1_1(struct virtio_net *dev, uint16_t queue_id,
 		idx = vq->last_used_idx & mask;
 		desc = &descs[idx];
 
-		if (!(desc->flags & DESC_HW))
+		if (!(desc->flags & DESC_DRIVER))
 			break;
 
 		desc_addr = rte_vhost_gpa_to_vva(dev->mem, desc->addr);
@@ -657,7 +657,7 @@ vhost_enqueue_burst_1_1(struct virtio_net *dev, uint16_t queue_id,
 				    virtio-user implementation **/
 				idx = (idx + 1); // & (vq->size - 1);
 				desc = &descs[idx];
-				if (unlikely(!(desc->flags & DESC_HW)))
+				if (unlikely(!(desc->flags & DESC_DRIVER)))
 					goto end_of_tx;
 
 				desc_addr = rte_vhost_gpa_to_vva(dev->mem, desc->addr);
@@ -692,11 +692,11 @@ end_of_tx:
 		for (i = 1; i < count; i++) {
 			idx = (head_idx + i) & mask;
 			descs[idx].len = pkts[i]->pkt_len + dev->vhost_hlen;
-			descs[idx].flags &= ~DESC_HW;
+			descs[idx].flags &= ~DESC_DRIVER;
 		}
 		descs[head_idx].len = pkts[0]->pkt_len + dev->vhost_hlen;
 		rte_smp_wmb();
-		descs[head_idx].flags &= ~DESC_HW;
+		descs[head_idx].flags &= ~DESC_DRIVER;
 	}
 
 	return count;
@@ -1232,15 +1232,26 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	uint16_t head_idx = vq->last_used_idx;
 	uint16_t desc_idx;
 	int err;
+	uint16_t current_wrap;
+	//uint16_t mycount = count;
 
 	desc_idx = vq->last_used_idx;
-	if (!(desc[desc_idx & (vq->size - 1)].flags & DESC_HW))
+	if (!(desc[desc_idx & (vq->size - 1)].flags & DESC_DRIVER))
 		return 0;
 
-	count = RTE_MIN(MAX_PKT_BURST, count);
+	//count = RTE_MIN(MAX_PKT_BURST, count);
+	/* walk through ring, look at desc wrap flag and find out
+	 * when it changes. The last desc with the same wrap flag as
+	 * last_used_idx will be the last one available in the ring
+	 */
+	current_wrap = desc[desc_idx & (vq->size - 1)].flags & DESC_WRAP;
+	for (i = desc_idx; ((desc[i & (vq->size -1)].flags & DESC_WRAP) == current_wrap) && (i < vq->size-1); i++) {
+		if (!(desc[i & (vq->size -1)].flags & DESC_DRIVER))
+			break;
+	}
 
 	for (i = 0; i < count; i++) {
-		if (!(desc[desc_idx & (vq->size - 1)].flags & DESC_HW))
+		if (!(desc[desc_idx & (vq->size - 1)].flags & DESC_DRIVER))
 			break;
 
 		pkts[i] = rte_pktmbuf_alloc(mbuf_pool);
@@ -1258,15 +1269,18 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	}
 
 	vq->last_used_idx = desc_idx;
+	/* clear flags from head_idx to desc[desc_idx]->id */
 	if (likely(i)) {
 		rte_prefetch0(&desc[head_idx & (vq->size - 1)]);
 		for (desc_idx = head_idx + 1;
 		     desc_idx != vq->last_used_idx;
 		     desc_idx++) {
 			desc[desc_idx & (vq->size - 1)].flags = 0;
+			desc[desc_idx & (vq->size - 1)].flags |= current_wrap;
 		}
 		rte_smp_wmb();
 		desc[head_idx & (vq->size - 1)].flags = 0;
+		desc[head_idx & (vq->size - 1)].flags |= current_wrap;
 	}
 
 	return i;

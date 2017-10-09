@@ -11,7 +11,9 @@
 
 #define BATCH_NOT_FIRST 0x0010
 #define BATCH_NOT_LAST  0x0020
-#define DESC_HW		0x0080
+#define DESC_DRIVER	0x0100
+#define DESC_WRAP 0x0200
+#define DESC_MASK	0x0300
 
 struct vring_desc_1_1 {
         __le64 addr;

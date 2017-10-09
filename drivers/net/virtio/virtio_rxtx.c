@@ -320,7 +320,7 @@ virtio_dev_rx_queue_setup(struct rte_eth_dev *dev,
 				RTE_PKTMBUF_HEADROOM - hw->vtnet_hdr_size;
 			desc->len = m->buf_len - RTE_PKTMBUF_HEADROOM +
 				hw->vtnet_hdr_size;
-			desc->flags = VRING_DESC_F_WRITE | DESC_HW;
+			desc->flags = VRING_DESC_F_WRITE | DESC_DRIVER;
 		}
 
 		return 0;
@@ -372,7 +372,7 @@ virtio_dev_rx_queue_setup(struct rte_eth_dev *dev,
 		struct vring_desc_1_1 *desc = vq->vq_ring.desc_1_1;
 		int i;
 		for (i = 0; i < nbufs; i++) {
-			desc[head_idx & (vq->vq_nentries - 1)].flags |= DESC_HW;
+			desc[head_idx & (vq->vq_nentries - 1)].flags |= DESC_DRIVER;
 			head_idx++;
 		}
 	}
@@ -645,7 +645,7 @@ virtio_recv_pkts_1_1(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts
 
 	for (i = 0; i < nb_pkts; i++) {
 		desc = &descs[used_idx & (vq->vq_nentries - 1)];
-		if (desc->flags & DESC_HW)
+		if (desc->flags & DESC_DRIVER)
 			break;
 
 		nmb = rte_mbuf_raw_alloc(rxvq->mpool);
@@ -714,12 +714,12 @@ virtio_recv_pkts_1_1(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts
 	if (nb_rx > 0) {
 		uint16_t idx = (vq->vq_used_cons_idx + 1) & (vq->vq_nentries - 1);
 		for (i = 1; i < nb_rx; i++) {
-			descs[idx].flags |= DESC_HW;
+			descs[idx].flags |= DESC_DRIVER;
 			idx = (idx + 1) & (vq->vq_nentries - 1);
 		}
 
 		rte_smp_wmb();
-		descs[vq->vq_used_cons_idx & (vq->vq_nentries - 1)].flags |= DESC_HW;
+		descs[vq->vq_used_cons_idx & (vq->vq_nentries - 1)].flags |= DESC_DRIVER;
 	}
 
 	rxvq->stats.packets += nb_rx;
