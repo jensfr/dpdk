@@ -1243,7 +1243,7 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	 * check for DESC_SKIP_HDR. If set then we can assume that all descriptors
 	 * from desc_idx to desc[desc_idx]->id are ready for us (device) to consume */
 	if ((desc[desc_idx & (vq->size -1)].flags) & DESC_SKIP_HDR) {
-		count = desc[desc_idx & (vq->size-1)].index;
+		//count = desc[desc_idx & (vq->size-1)].index;
 		printf("set count to %d\n", count);
 	}
 
