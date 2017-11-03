@@ -261,6 +261,9 @@ virtio_tso_fix_cksum(struct rte_mbuf *m)
 static inline int
 tx_offload_enabled(struct virtio_hw *hw)
 {
+	if (vtpci_version_1_1(hw))
+		return 0;
+
 	return vtpci_with_feature(hw, VIRTIO_NET_F_CSUM) ||
 		vtpci_with_feature(hw, VIRTIO_NET_F_HOST_TSO4) ||
 		vtpci_with_feature(hw, VIRTIO_NET_F_HOST_TSO6);
@@ -1059,6 +1062,10 @@ virtio_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts)
 		else if (vtpci_with_feature(hw, VIRTIO_RING_F_INDIRECT_DESC) &&
 			 txm->nb_segs < VIRTIO_MAX_TX_INDIRECT)
 			use_indirect = 1;
+		else if (vtpci_version_1_1(hw)) {
+			can_push = 0;
+			use_indirect = 0;
+		}
 
 		/* How many main ring entries are needed to this Tx?
 		 * any_layout => number of segments
