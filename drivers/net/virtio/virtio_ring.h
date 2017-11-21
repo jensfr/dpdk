@@ -87,11 +87,76 @@ struct vring_used {
 
 struct vring {
 	unsigned int num;
+	unsigned int avail_wrap_counter;
+	unsigned int used_wrap_counter;
 	struct vring_desc  *desc;
 	struct vring_avail *avail;
 	struct vring_used  *used;
 	struct vring_desc_1_1 *desc_1_1;
 };
+
+static inline void toggle_wrap_counter(struct vring *vr)
+{
+	if (vr->avail_wrap_counter == 0)
+		vr->avail_wrap_counter = 1;
+	else if (vr->avail_wrap_counter == 1)
+		vr->avail_wrap_counter = 0;
+}
+
+static inline void set_desc_used(struct vring *vr, struct vring_desc_1_1 *desc)
+{
+	if (vr->avail_wrap_counter == 0) {
+		desc->flags &= ~DESC_AVAIL;
+		desc->flags &= ~DESC_USED;
+	} else {
+		desc->flags |= DESC_AVAIL;
+		desc->flags |= DESC_USED;
+	}
+}
+
+	if (vr->avail_wrap_counter)
+		desc->flags |= DESC_AVAIL;
+	else
+		desc->flags &= ~DESC_AVAIL;
+}
+
+static inline int desc_is_used(struct vring *vr, struct vring_desc_1_1 *desc)
+{
+	if (!vr)
+		return -1;
+
+	if (vr->avail_wrap_counter == 1) {
+		if ((desc->flags & DESC_AVAIL) && (desc->flags & DESC_USED))
+			return 1;
+	} else if (vr->avail_wrap_counter == 0) {
+		if (!(desc->flags & DESC_AVAIL) && !(desc->flags & DESC_USED))
+			return 1;
+	}
+
+	return 0;
+}
+
+static inline int desc_is_avail(struct vring *vr, struct vring_desc_1_1 *desc)
+{
+	if (!vr)
+		return -1;
+
+	if (vr->avail_wrap_counter == 1) {
+		if ((desc->flags & DESC_AVAIL) && !(desc->flags & DESC_USED))
+			return 1;
+	} else if (vr->avail_wrap_counter == 0) {	
+		if (!(desc->flags & DESC_AVAIL) && (desc->flags & DESC_USED))
+			return 1;
+	}
+	return 0;
+/*
+	if ((vr->avail_wrap_counter == 1) && (desc->flags & DESC_AVAIL))
+		return 1;
+	if ((vr->avail_wrap_counter == 0) && !(desc->flags & DESC_AVAIL))
+		return 1;
+	return 0;
+}
+
 
 /* The standard layout for the ring is a continuous chunk of memory which
  * looks like this.  We assume num is a power of 2.
