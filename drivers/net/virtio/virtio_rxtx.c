@@ -59,6 +59,7 @@
 #include "virtio_pci.h"
 #include "virtqueue.h"
 #include "virtio_rxtx.h"
+#include "virtio_ring.h"
 
 #ifdef RTE_LIBRTE_VIRTIO_DEBUG_DUMP
 #define VIRTIO_DUMP_PACKET(m, len) rte_pktmbuf_dump(stdout, m, len)
@@ -477,7 +478,8 @@ virtio_dev_rx_queue_setup_finish(struct rte_eth_dev *dev, uint16_t queue_idx)
 				RTE_PKTMBUF_HEADROOM - hw->vtnet_hdr_size;
 			desc->len = m->buf_len - RTE_PKTMBUF_HEADROOM +
 				hw->vtnet_hdr_size;
-			desc->flags = VRING_DESC_F_WRITE | DESC_HW;
+			set_desc_avail(&vq->vq_ring, desc);
+			desc->flags = VRING_DESC_F_WRITE;
 		}
 
 		return 0;
@@ -776,7 +778,7 @@ virtio_recv_pkts_1_1(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts
 
 	for (i = 0; i < nb_pkts; i++) {
 		desc = &descs[used_idx & (vq->vq_nentries - 1)];
-		if (desc->flags & DESC_HW)
+		if (desc_avail(&vq->vq_ring, desc))
 			break;
 
 		nmb = rte_mbuf_raw_alloc(rxvq->mpool);
@@ -842,12 +844,13 @@ virtio_recv_pkts_1_1(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts
 	if (nb_rx > 0) {
 		uint16_t idx = (vq->vq_used_cons_idx + 1) & (vq->vq_nentries - 1);
 		for (i = 1; i < nb_rx; i++) {
-			descs[idx].flags |= DESC_HW;
+			set_desc_avail(&vq->vq_ring, desc);
 			idx = (idx + 1) & (vq->vq_nentries - 1);
 		}
 
 		rte_smp_wmb();
-		descs[vq->vq_used_cons_idx & (vq->vq_nentries - 1)].flags |= DESC_HW;
+		set_desc_avail(&vq->vq_ring,
+			       &descs[vq->vq_used_cons_idx & (vq->vq_nentries -1)]);
 	}
 
 	rxvq->stats.packets += nb_rx;
