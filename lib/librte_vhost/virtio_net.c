@@ -750,7 +750,7 @@ vhost_enqueue_burst_1_1(struct virtio_net *dev, uint16_t queue_id,
 		idx = vq->last_used_idx & mask;
 		desc = &descs[idx];
 
-		if (!(desc->flags & DESC_HW))
+		if (!desc_is_avail(vq, desc))
 			break;
 
 		desc_addr = rte_vhost_gpa_to_vva(dev->mem, desc->addr);
@@ -793,7 +793,7 @@ vhost_enqueue_burst_1_1(struct virtio_net *dev, uint16_t queue_id,
 				    virtio-user implementation **/
 				idx = (idx + 1); // & (vq->size - 1);
 				desc = &descs[idx];
-				if (unlikely(!(desc->flags & DESC_HW)))
+				if (unlikely(!desc_is_avail(vq, desc)))
 					goto end_of_tx;
 
 				desc_addr = rte_vhost_gpa_to_vva(dev->mem, desc->addr);
@@ -828,11 +828,11 @@ end_of_tx:
 		for (i = 1; i < count; i++) {
 			idx = (head_idx + i) & mask;
 			descs[idx].len = pkts[i]->pkt_len + dev->vhost_hlen;
-			descs[idx].flags &= ~DESC_HW;
+			clear_desc_used(vq, &descs[idx]);
 		}
 		descs[head_idx].len = pkts[0]->pkt_len + dev->vhost_hlen;
 		rte_smp_wmb();
-		descs[head_idx].flags &= ~DESC_HW;
+		clear_desc_used(vq, &descs[head_idx]);
 	}
 
 	return count;
@@ -1437,7 +1437,7 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	count = RTE_MIN(MAX_PKT_BURST, count);
 	for (i = 0; i < count; i++) {
 		idx = vq->last_used_idx & (vq->size - 1);
-		if (!(desc[idx].flags & DESC_HW))
+		if (!desc_is_avail(vq, &desc[idx]))
 			break;
 
 		pkts[i] = rte_pktmbuf_alloc(mbuf_pool);
