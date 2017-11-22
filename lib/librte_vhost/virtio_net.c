@@ -753,6 +753,12 @@ vhost_enqueue_burst_1_1(struct virtio_net *dev, uint16_t queue_id,
 		if (!desc_is_avail(vq, desc))
 			break;
 
+		if (idx == (vq->size - 1)) {
+			if (vq->used_wrap_counter == 0)
+				vq->used_wrap_counter = 1;
+			else if (vq->used_wrap_counter == 1)
+				vq->used_wrap_counter = 0;
+		}
 		desc_addr = rte_vhost_gpa_to_vva(dev->mem, desc->addr);
 		/*
 		 * Checking of 'desc_addr' placed outside of 'unlikely' macro to avoid
@@ -802,6 +808,7 @@ vhost_enqueue_burst_1_1(struct virtio_net *dev, uint16_t queue_id,
 
 				desc_offset = 0;
 				desc_avail  = desc->len;
+
 			}
 
 			cpy_len = RTE_MIN(desc_avail, mbuf_avail);

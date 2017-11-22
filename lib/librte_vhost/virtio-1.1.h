@@ -22,30 +22,45 @@ struct vring_desc_1_1 {
         __le16 flags;
 };
 
-static inline int desc_is_avail(struct vhost_virtqueue *vq, struct vring_desc_1_1 *desc)
+static inline int
+desc_is_avail(struct vhost_virtqueue *vq, struct vring_desc_1_1 *desc)
 {
-	if ((vq->used_wrap_counter == 0) && (desc->flags & DESC_AVAIL))
-		return 1;
-	if ((vq->used_wrap_counter == 1) && !(desc->flags & DESC_AVAIL))
-		return 1;
-	return 0;
+       if (!vq)
+                return -1;
+
+        if ((desc->flags & DESC_AVAIL) && !(desc->flags & DESC_USED))
+                return 1;
+        else if (!(desc->flags & DESC_AVAIL) && (desc->flags & DESC_USED))
+                return 1;
+        return 0;
 }
 
 static inline void
 set_desc_used (struct vhost_virtqueue *vq, struct vring_desc_1_1 *desc) {
-	if (vq->used_wrap_counter)
+	if (vq->used_wrap_counter == 1) {
 		desc->flags |= DESC_USED;
-	else
+		desc->flags |= DESC_AVAIL;
+	} else if (vq->used_wrap_counter == 0) {
 		desc->flags &= ~DESC_USED;
+		desc->flags &= ~DESC_AVAIL;
+	}	
 }
 
 static inline void
 clear_desc_used(struct vhost_virtqueue *vq, struct vring_desc_1_1 *desc) {
+	/*
 	if ((desc->flags & DESC_AVAIL) ^ (desc->flags & DESC_USED)) { 
 		set_desc_used(vq, desc);
 		return;
 	}
-	desc->flags &= ~DESC_USED;
+	*/
+	if (vq->used_wrap_counter == 1) {
+		desc->flags &= ~DESC_USED;
+		desc->flags |= DESC_AVAIL;
+	} else if (vq->used_wrap_counter == 0) {
+		desc->flags |= DESC_USED;
+		desc->flags &= ~DESC_AVAIL;
+	}
 }
 #endif /* __VIRTIO_1_1_H */
 

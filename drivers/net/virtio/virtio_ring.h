@@ -94,21 +94,44 @@ struct vring {
 	struct vring_desc_1_1 *desc_1_1;
 };
 
-static inline void set_desc_avail(struct vring *vr, struct vring_desc_1_1 *desc) {
-
-	if (vr->avail_wrap_counter)
-		desc->flags |= DESC_AVAIL;
-	else
+static inline void set_desc_used(struct vring *vr, struct vring_desc_1_1 *desc) {
+	if (vr->avail_wrap_counter == 0) {
 		desc->flags &= ~DESC_AVAIL;
+		desc->flags &= ~DESC_USED;
+	} else {
+		desc->flags |= DESC_AVAIL;
+		desc->flags |= DESC_USED;
+	}
+}
+
+static inline void set_desc_avail(struct vring *vr, struct vring_desc_1_1 *desc)
+{
+	if (vr->avail_wrap_counter) {
+		desc->flags |= DESC_AVAIL;
+		desc->flags &= ~DESC_USED;
+	} else {
+		desc->flags &= ~DESC_AVAIL;
+		desc->flags |= DESC_USED;
+	}
 }
 
 static inline int desc_avail(struct vring *vr, struct vring_desc_1_1 *desc)
 {
+	if (!vr)
+		return -1;
+
+	if ((desc->flags & DESC_AVAIL) && !(desc->flags & DESC_USED))
+		return 1;
+	else if (!(desc->flags & DESC_AVAIL) && (desc->flags & DESC_USED))
+		return 1;
+	return 0;
+/*
 	if ((vr->avail_wrap_counter == 1) && (desc->flags & DESC_AVAIL))
 		return 1;
 	if ((vr->avail_wrap_counter == 0) && !(desc->flags & DESC_AVAIL))
 		return 1;
 	return 0;
+*/
 }
 
 
@@ -168,7 +191,6 @@ vring_init(struct virtio_hw *hw, struct vring *vr, unsigned int num, uint8_t *p,
 	vr->num = num;
 	if (vtpci_version_1_1(hw)) {
 		vr->desc_1_1 = (struct vring_desc_1_1 *)p;
-		vr->avail_wrap_counter = 1;
 		return;
 	}
 

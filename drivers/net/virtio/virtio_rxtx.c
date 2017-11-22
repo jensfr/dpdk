@@ -478,8 +478,8 @@ virtio_dev_rx_queue_setup_finish(struct rte_eth_dev *dev, uint16_t queue_idx)
 				RTE_PKTMBUF_HEADROOM - hw->vtnet_hdr_size;
 			desc->len = m->buf_len - RTE_PKTMBUF_HEADROOM +
 				hw->vtnet_hdr_size;
-			set_desc_avail(&vq->vq_ring, desc);
-			desc->flags = VRING_DESC_F_WRITE;
+			set_desc_used(&vq->vq_ring, desc);
+			desc->flags |= VRING_DESC_F_WRITE;
 		}
 
 		return 0;
@@ -778,7 +778,7 @@ virtio_recv_pkts_1_1(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts
 
 	for (i = 0; i < nb_pkts; i++) {
 		desc = &descs[used_idx & (vq->vq_nentries - 1)];
-		if (desc_avail(&vq->vq_ring, desc))
+		if (!desc_avail(&vq->vq_ring, desc))
 			break;
 
 		nmb = rte_mbuf_raw_alloc(rxvq->mpool);

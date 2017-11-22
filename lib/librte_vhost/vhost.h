@@ -200,8 +200,8 @@ struct vhost_msg {
 
 #define VHOST_USER_F_PROTOCOL_FEATURES	30
 
+//#define VIRTIO_NET_SUPPORTED_FEATURES ((1ULL << VIRTIO_NET_F_MRG_RXBUF)
 /* Features supported by this builtin vhost-user net driver. */
-//#define VIRTIO_NET_SUPPORTED_FEATURES ((1ULL << VIRTIO_NET_F_MRG_RXBUF) | 
 #define VIRTIO_NET_SUPPORTED_FEATURES ( \
 				(1ULL << VIRTIO_NET_F_CTRL_VQ) | \
 				(1ULL << VIRTIO_NET_F_CTRL_RX) | \
@@ -218,8 +218,7 @@ struct vhost_msg {
 				(1ULL << VIRTIO_NET_F_GUEST_TSO4) | \
 				(1ULL << VIRTIO_NET_F_GUEST_TSO6) | \
 				(1ULL << VIRTIO_RING_F_INDIRECT_DESC) | \
-				(1ULL << VIRTIO_NET_F_MTU) | \
-				(1ULL << VIRTIO_F_IOMMU_PLATFORM))
+				(1ULL << VIRTIO_NET_F_MTU))
 
 
 struct guest_page {

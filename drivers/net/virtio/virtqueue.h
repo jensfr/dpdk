@@ -271,6 +271,8 @@ vring_desc_init_1_1(struct vring *vr, int n)
 	int i;
 	for (i = 0; i < n; i++) {
 		struct vring_desc_1_1 *desc = &vr->desc_1_1[i];
+		//desc->flags |= DESC_AVAIL;
+		//desc->flags |= DESC_USED;
 		desc->flags = 0;
 		desc->index = i;
 	}

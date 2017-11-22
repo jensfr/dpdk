@@ -1280,12 +1280,12 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 {
 	struct virtio_hw *hw = eth_dev->data->dev_private;
 
-	if (hw->use_simple_rx) {
+	if (vtpci_version_1_1(hw)) {
+		eth_dev->rx_pkt_burst = &virtio_recv_pkts_1_1;
+	} else if (hw->use_simple_rx) {
 		PMD_INIT_LOG(INFO, "virtio: using simple Rx path on port %u",
 			eth_dev->data->port_id);
 		eth_dev->rx_pkt_burst = virtio_recv_pkts_vec;
-	} else if (vtpci_version_1_1(hw)) {
-		eth_dev->rx_pkt_burst = &virtio_recv_pkts_1_1;
 	} else if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF)) {
 		PMD_INIT_LOG(INFO,
 			"virtio: using mergeable buffer Rx path on port %u",
@@ -1297,11 +1297,13 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 		eth_dev->rx_pkt_burst = &virtio_recv_pkts;
 	}
 
-	if (hw->use_simple_tx) {
+	if (vtpci_version_1_1(hw)) {
+		eth_dev->tx_pkt_burst = &virtio_xmit_pkts_1_1;
+	} else if (hw->use_simple_tx) {
 		PMD_INIT_LOG(INFO, "virtio: using simple Tx path on port %u",
 			eth_dev->data->port_id);
 		eth_dev->tx_pkt_burst = virtio_xmit_pkts_simple;
-	} else {
+	} else  {
 		PMD_INIT_LOG(INFO, "virtio: using standard Tx path on port %u",
 			eth_dev->data->port_id);
 		eth_dev->tx_pkt_burst = virtio_xmit_pkts;
@@ -1821,6 +1823,8 @@ virtio_dev_start(struct rte_eth_dev *dev)
 	struct virtnet_rx *rxvq;
 	struct virtnet_tx *txvq __rte_unused;
 	struct virtio_hw *hw = dev->data->dev_private;
+	struct vring *tx_vring;
+	struct vring *rx_vring;
 	int ret;
 
 	/* Finish the initialization of the queues */
@@ -1871,6 +1875,8 @@ virtio_dev_start(struct rte_eth_dev *dev)
 
 	for (i = 0; i < dev->data->nb_rx_queues; i++) {
 		rxvq = dev->data->rx_queues[i];
+		rx_vring = &rxvq->vq->vq_ring;
+		rx_vring->avail_wrap_counter = 1;
 		/* Flush the old packets */
 		virtqueue_flush(rxvq->vq);
 		virtqueue_notify(rxvq->vq);
@@ -1878,6 +1884,8 @@ virtio_dev_start(struct rte_eth_dev *dev)
 
 	for (i = 0; i < dev->data->nb_tx_queues; i++) {
 		txvq = dev->data->tx_queues[i];
+		tx_vring = &txvq->vq->vq_ring;
+		tx_vring->avail_wrap_counter = 1;
 		virtqueue_notify(txvq->vq);
 	}
 
