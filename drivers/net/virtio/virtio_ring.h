@@ -88,7 +88,6 @@ struct vring_used {
 struct vring {
 	unsigned int num;
 	unsigned int avail_wrap_counter;
-	unsigned int used_wrap_counter;
 	struct vring_desc  *desc;
 	struct vring_avail *avail;
 	struct vring_used  *used;
@@ -169,6 +168,7 @@ vring_init(struct virtio_hw *hw, struct vring *vr, unsigned int num, uint8_t *p,
 	vr->num = num;
 	if (vtpci_version_1_1(hw)) {
 		vr->desc_1_1 = (struct vring_desc_1_1 *)p;
+		vr->avail_wrap_counter = 1;
 		return;
 	}
 

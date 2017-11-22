@@ -24,9 +24,9 @@ struct vring_desc_1_1 {
 
 static inline int desc_is_avail(struct vhost_virtqueue *vq, struct vring_desc_1_1 *desc)
 {
-	if ((vq->avail_wrap_counter == 1) && (desc->flags & DESC_AVAIL))
+	if ((vq->used_wrap_counter == 0) && (desc->flags & DESC_AVAIL))
 		return 1;
-	if ((vq->avail_wrap_counter == 0) && !(desc->flags & DESC_AVAIL))
+	if ((vq->used_wrap_counter == 1) && !(desc->flags & DESC_AVAIL))
 		return 1;
 	return 0;
 }
