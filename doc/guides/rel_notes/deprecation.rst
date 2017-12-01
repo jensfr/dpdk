@@ -45,11 +45,28 @@ Deprecation Notices
   Target release for removal of the legacy API will be defined once most
   PMDs have switched to rte_flow.
 
-* i40e: The default flexible payload configuration which extracts the first 16
-  bytes of the payload for RSS will be deprecated starting from 18.02. If
-  required the previous behavior can be configured using existing flow
-  director APIs. There is no ABI/API break. This change will just remove a
-  global configuration setting and require explicit configuration.
+* ethdev: The device flag advertizing hotplug capability
+  ``RTE_ETH_DEV_DETACHABLE`` is not needed anymore and will be removed in
+  v17.11.
+  This capability is verified upon calling the relevant hotplug functions in EAL
+  by checking that the ``unplug`` ops is set in the bus. This verification is
+  done by the EAL and not by the ``ethdev`` layer anymore. Users relying on this
+  flag being present only have to remove their checks to follow the change.
+
+* ethdev: new parameters - ``rte_security_capabilities`` and
+  ``rte_security_ops`` will be added to ``rte_eth_dev_info`` and
+  ``rte_eth_dev`` respectively  to support security operations like
+  ipsec inline.
+
+* cryptodev: new parameters - ``rte_security_capabilities`` and
+  ``rte_security_ops`` will be added to ``rte_cryptodev_info`` and
+  ``rte_cryptodev`` respectively to support security protocol offloaded
+  operations.
+
+* cryptodev: the following function is deprecated starting from 17.08 and will
+  be removed in 17.11:
+
+  - ``rte_cryptodev_create_vdev``
 
 * librte_meter: The API will change to accommodate configuration profiles.
   Most of the API functions will have an additional opaque parameter.

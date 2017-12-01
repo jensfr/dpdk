@@ -2761,7 +2761,8 @@ bond_alloc(struct rte_vdev_device *dev, uint8_t mode)
 	}
 
 	eth_dev->dev_ops = &default_dev_ops;
-	eth_dev->data->dev_flags = RTE_ETH_DEV_INTR_LSC;
+	eth_dev->data->dev_flags = RTE_ETH_DEV_INTR_LSC |
+		RTE_ETH_DEV_DETACHABLE;
 
 	rte_spinlock_init(&internals->lock);
 
