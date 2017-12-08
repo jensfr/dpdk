@@ -778,7 +778,7 @@ virtio_recv_pkts_1_1(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts
 
 	for (i = 0; i < nb_pkts; i++) {
 		desc = &descs[used_idx & (vq->vq_nentries - 1)];
-		if (!desc_avail(&vq->vq_ring, desc))
+		if (!desc_is_avail(&vq->vq_ring, desc))
 			break;
 
 		nmb = rte_mbuf_raw_alloc(rxvq->mpool);
@@ -800,7 +800,7 @@ virtio_recv_pkts_1_1(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts
 			RTE_PKTMBUF_HEADROOM - hw->vtnet_hdr_size;
 		desc->len = nmb->buf_len - RTE_PKTMBUF_HEADROOM +
 			hw->vtnet_hdr_size;
-		desc->flags = VRING_DESC_F_WRITE;
+		desc->flags |= VRING_DESC_F_WRITE;
 
 		PMD_RX_LOG(DEBUG, "packet len:%d", len);
 

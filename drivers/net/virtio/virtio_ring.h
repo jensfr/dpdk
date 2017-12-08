@@ -115,15 +115,18 @@ static inline void set_desc_avail(struct vring *vr, struct vring_desc_1_1 *desc)
 	}
 }
 
-static inline int desc_avail(struct vring *vr, struct vring_desc_1_1 *desc)
+static inline int desc_is_avail(struct vring *vr, struct vring_desc_1_1 *desc)
 {
 	if (!vr)
 		return -1;
 
-	if ((desc->flags & DESC_AVAIL) && !(desc->flags & DESC_USED))
-		return 1;
-	else if (!(desc->flags & DESC_AVAIL) && (desc->flags & DESC_USED))
-		return 1;
+	if (vr->avail_wrap_counter == 1) {
+		if ((desc->flags & DESC_AVAIL) && !(desc->flags & DESC_USED))
+			return 1;
+	} else if (vr->avail_wrap_counter == 0) {	
+		if (!(desc->flags & DESC_AVAIL) && (desc->flags & DESC_USED))
+			return 1;
+	}
 	return 0;
 /*
 	if ((vr->avail_wrap_counter == 1) && (desc->flags & DESC_AVAIL))
