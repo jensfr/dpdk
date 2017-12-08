@@ -750,7 +750,7 @@ vhost_enqueue_burst_1_1(struct virtio_net *dev, uint16_t queue_id,
 		idx = vq->last_used_idx & mask;
 		desc = &descs[idx];
 
-		if (!desc_is_avail(vq, desc))
+		if (desc_is_used(vq, desc))
 			break;
 
 		if (idx == (vq->size - 1)) {
@@ -1466,10 +1466,12 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 		for (idx = head_idx + 1;
 		     idx != vq->last_used_idx;
 		     idx++) {
-			desc[idx & (vq->size - 1)].flags = 0;
+			//desc[idx & (vq->size - 1)].flags = 0;
+			set_desc_used(vq, &desc[idx & (vq->size - 1)]);
 		}
 		rte_smp_wmb();
-		desc[head_idx & (vq->size - 1)].flags = 0;
+		//desc[head_idx & (vq->size - 1)].flags = 0;
+		set_desc_used(vq, &desc[head_idx & (vq->size - 1)]);
 	}
 
 	return i;

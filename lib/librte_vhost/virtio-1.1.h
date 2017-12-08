@@ -23,15 +23,35 @@ struct vring_desc_1_1 {
 };
 
 static inline int
+desc_is_used(struct vhost_virtqueue *vq, struct vring_desc_1_1 *desc)
+{
+	if (vq->used_wrap_counter == 1) {
+		if ((desc->flags & DESC_AVAIL) && (desc->flags & DESC_USED))
+			return 1;
+	} else if (vq->used_wrap_counter == 0) {
+		if (!(desc->flags & DESC_AVAIL) && !(desc->flags & DESC_USED))
+			return 1;
+	}
+	return 0;
+	
+}
+
+static inline int
 desc_is_avail(struct vhost_virtqueue *vq, struct vring_desc_1_1 *desc)
 {
        if (!vq)
                 return -1;
 
-        if ((desc->flags & DESC_AVAIL) && !(desc->flags & DESC_USED))
-                return 1;
-        else if (!(desc->flags & DESC_AVAIL) && (desc->flags & DESC_USED))
-                return 1;
+	/* how do I need to incorparte the counters into checking if a desc is used or available
+ * this function should probably be called desc_is_used
+ * how do the flags need to be initialized?
+ */
+	if (vq->used_wrap_counter == 1)
+		if (!(desc->flags & DESC_AVAIL) && (desc->flags & DESC_USED))
+			return 1;
+	if (vq->used_wrap_counter == 0)
+		if ((desc->flags & DESC_AVAIL) && !(desc->flags & DESC_USED))
+			return 1;
         return 0;
 }
 
@@ -45,6 +65,7 @@ set_desc_used (struct vhost_virtqueue *vq, struct vring_desc_1_1 *desc) {
 		desc->flags &= ~DESC_AVAIL;
 	}	
 }
+
 
 static inline void
 clear_desc_used(struct vhost_virtqueue *vq, struct vring_desc_1_1 *desc) {
