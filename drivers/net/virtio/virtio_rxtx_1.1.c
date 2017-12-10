@@ -72,7 +72,7 @@ virtio_xmit_cleanup(struct virtqueue *vq)
 	struct vring_desc_1_1 *desc = vq->vq_ring.desc_1_1;
 
 	idx = vq->vq_used_cons_idx & (size - 1);
-	while (desc_is_avail(&vq->vq_ring, &desc[idx]) == 0) {
+	while (desc_is_used(&vq->vq_ring, &desc[idx])) {
 		idx = (++vq->vq_used_cons_idx) & (size - 1);
 		vq->vq_free_cnt++;
 
@@ -128,19 +128,21 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 				  RTE_PTR_DIFF(&txr[idx].tx_hdr, txr);
 		desc[idx].len   = vq->hw->vtnet_hdr_size;
 		desc[idx].flags |= VRING_DESC_F_NEXT;
-		if (idx & (vq->vq_nentries - 1 ))
-			toggle_wrap_counter(vq);
 		if (i != 0)
 			set_desc_avail(&vq->vq_ring, &desc[idx]);
+		if (idx == (vq->vq_nentries - 1 ))
+			toggle_wrap_counter(&vq->vq_ring);
 
 		do {
 			idx = (vq->vq_avail_idx++) & (vq->vq_nentries - 1);
-			if (idx & (vq->vq_nentries - 1 ))
-				toggle_wrap_counter(vq);
+			if (idx == (vq->vq_nentries - 1 ))
+				toggle_wrap_counter(&vq->vq_ring);
 			desc[idx].addr  = VIRTIO_MBUF_DATA_DMA_ADDR(txm, vq);
 			desc[idx].len   = txm->data_len;
 			set_desc_avail(&vq->vq_ring, &desc[idx]);
 			desc[idx].flags |= VRING_DESC_F_NEXT;
+			if (idx == (vq->vq_nentries - 1 ))
+				toggle_wrap_counter(&vq->vq_ring);
 		} while ((txm = txm->next) != NULL);
 
 		desc[idx].flags &= ~VRING_DESC_F_NEXT;
@@ -148,10 +150,10 @@ virtio_xmit_pkts_1_1(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts
 
 	if (likely(i)) {
 		rte_smp_wmb();
-		if (idx & (vq->vq_nentries - 1 ))
-			toggle_wrap_counter(vq);
 		set_desc_avail(&vq->vq_ring,
 			       &vq->vq_ring.desc_1_1[head_idx & (vq->vq_nentries -1)]);
+		if (head_idx == (vq->vq_nentries - 1 ))
+			toggle_wrap_counter(&vq->vq_ring);
 	}
 	txvq->stats.packets += i;
 	txvq->stats.errors  += nb_pkts - i;

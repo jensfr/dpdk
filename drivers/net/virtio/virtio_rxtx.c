@@ -844,13 +844,17 @@ virtio_recv_pkts_1_1(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts
 	if (nb_rx > 0) {
 		uint16_t idx = (vq->vq_used_cons_idx + 1) & (vq->vq_nentries - 1);
 		for (i = 1; i < nb_rx; i++) {
-			set_desc_avail(&vq->vq_ring, desc);
 			idx = (idx + 1) & (vq->vq_nentries - 1);
+			set_desc_avail(&vq->vq_ring, desc);
+			if (idx == (vq->vq_nentries - 1))
+				toggle_wrap_counter(&vq->vq_ring);
 		}
 
 		rte_smp_wmb();
 		set_desc_avail(&vq->vq_ring,
 			       &descs[vq->vq_used_cons_idx & (vq->vq_nentries -1)]);
+		if (vq->vq_used_cons_idx == (vq->vq_nentries - 1))
+			toggle_wrap_counter(&vq->vq_ring);
 	}
 
 	rxvq->stats.packets += nb_rx;

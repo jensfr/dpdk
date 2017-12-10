@@ -94,7 +94,16 @@ struct vring {
 	struct vring_desc_1_1 *desc_1_1;
 };
 
-static inline void set_desc_used(struct vring *vr, struct vring_desc_1_1 *desc) {
+static inline void toggle_wrap_counter(struct vring *vr)
+{
+	if (vr->avail_wrap_counter == 0)
+		vr->avail_wrap_counter = 1;
+	else if (vr->avail_wrap_counter == 1)
+		vr->avail_wrap_counter = 0;
+}
+
+static inline void set_desc_used(struct vring *vr, struct vring_desc_1_1 *desc)
+{
 	if (vr->avail_wrap_counter == 0) {
 		desc->flags &= ~DESC_AVAIL;
 		desc->flags &= ~DESC_USED;
@@ -113,6 +122,22 @@ static inline void set_desc_avail(struct vring *vr, struct vring_desc_1_1 *desc)
 		desc->flags &= ~DESC_AVAIL;
 		desc->flags |= DESC_USED;
 	}
+}
+
+static inline int desc_is_used(struct vring *vr, struct vring_desc_1_1 *desc)
+{
+	if (!vr)
+		return -1;
+
+	if (vr->avail_wrap_counter == 1) {
+		if ((desc->flags & DESC_AVAIL) && (desc->flags & DESC_USED))
+			return 1;
+	} else if (vr->avail_wrap_counter == 0) {
+		if (!(desc->flags & DESC_AVAIL) && !(desc->flags & DESC_USED))
+			return 1;
+	}
+
+	return 0;
 }
 
 static inline int desc_is_avail(struct vring *vr, struct vring_desc_1_1 *desc)
