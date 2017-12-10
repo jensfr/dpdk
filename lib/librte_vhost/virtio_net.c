@@ -836,10 +836,14 @@ end_of_tx:
 			idx = (head_idx + i) & mask;
 			descs[idx].len = pkts[i]->pkt_len + dev->vhost_hlen;
 			clear_desc_used(vq, &descs[idx]);
+			if (idx == (vq->size -1))
+				toggle_wrap_counter(vq);
 		}
 		descs[head_idx].len = pkts[0]->pkt_len + dev->vhost_hlen;
 		rte_smp_wmb();
 		clear_desc_used(vq, &descs[head_idx]);
+		if (idx == (vq->size -1))
+			toggle_wrap_counter(vq);
 	}
 
 	return count;
@@ -1467,11 +1471,15 @@ vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
 		     idx != vq->last_used_idx;
 		     idx++) {
 			//desc[idx & (vq->size - 1)].flags = 0;
+			if (idx == (vq->size -1))
+				toggle_wrap_counter(vq);
 			set_desc_used(vq, &desc[idx & (vq->size - 1)]);
 		}
 		rte_smp_wmb();
 		//desc[head_idx & (vq->size - 1)].flags = 0;
 		set_desc_used(vq, &desc[head_idx & (vq->size - 1)]);
+		if (idx == (vq->size -1))
+			toggle_wrap_counter(vq);
 	}
 
 	return i;

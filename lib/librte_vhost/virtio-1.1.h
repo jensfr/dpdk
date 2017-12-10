@@ -22,6 +22,15 @@ struct vring_desc_1_1 {
         __le16 flags;
 };
 
+static inline void
+toggle_wrap_counter(struct vhost_virtqueue *vq)
+{
+	if (vq->used_wrap_counter == 0)
+		vq->used_wrap_counter = 1;
+	else if (vq->used_wrap_counter == 1)
+		vq->used_wrap_counter = 0;
+}
+
 static inline int
 desc_is_used(struct vhost_virtqueue *vq, struct vring_desc_1_1 *desc)
 {
