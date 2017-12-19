@@ -1819,6 +1819,8 @@ virtio_dev_start(struct rte_eth_dev *dev)
 	struct virtnet_rx *rxvq;
 	struct virtnet_tx *txvq __rte_unused;
 	struct virtio_hw *hw = dev->data->dev_private;
+	struct vring *tx_vring;
+	struct vring *rx_vring;
 	int ret;
 
 	/* Finish the initialization of the queues */
@@ -1869,6 +1871,8 @@ virtio_dev_start(struct rte_eth_dev *dev)
 
 	for (i = 0; i < dev->data->nb_rx_queues; i++) {
 		rxvq = dev->data->rx_queues[i];
+		rx_vring = &rxvq->vq->vq_ring;
+		rx_vring->avail_wrap_counter = 1;
 		/* Flush the old packets */
 		virtqueue_flush(rxvq->vq);
 		virtqueue_notify(rxvq->vq);
@@ -1876,6 +1880,8 @@ virtio_dev_start(struct rte_eth_dev *dev)
 
 	for (i = 0; i < dev->data->nb_tx_queues; i++) {
 		txvq = dev->data->tx_queues[i];
+		tx_vring = &txvq->vq->vq_ring;
+		tx_vring->avail_wrap_counter = 1;
 		virtqueue_notify(txvq->vq);
 	}
 

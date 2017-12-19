@@ -478,8 +478,8 @@ virtio_dev_rx_queue_setup_finish(struct rte_eth_dev *dev, uint16_t queue_idx)
 				RTE_PKTMBUF_HEADROOM - hw->vtnet_hdr_size;
 			desc->len = m->buf_len - RTE_PKTMBUF_HEADROOM +
 				hw->vtnet_hdr_size;
-			set_desc_avail(&vq->vq_ring, desc);
-			desc->flags = VRING_DESC_F_WRITE;
+			set_desc_used(&vq->vq_ring, desc);
+			desc->flags |= VRING_DESC_F_WRITE;
 		}
 
 		return 0;

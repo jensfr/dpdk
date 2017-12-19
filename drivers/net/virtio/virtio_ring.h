@@ -88,7 +88,6 @@ struct vring_used {
 struct vring {
 	unsigned int num;
 	unsigned int avail_wrap_counter;
-	unsigned int used_wrap_counter;
 	struct vring_desc  *desc;
 	struct vring_avail *avail;
 	struct vring_used  *used;
@@ -103,8 +102,7 @@ static inline void toggle_wrap_counter(struct vring *vr)
 		vr->avail_wrap_counter = 0;
 }
 
-static inline void set_desc_used(struct vring *vr, struct vring_desc_1_1 *desc)
-{
+static inline void set_desc_used(struct vring *vr, struct vring_desc_1_1 *desc) {
 	if (vr->avail_wrap_counter == 0) {
 		desc->flags &= ~DESC_AVAIL;
 		desc->flags &= ~DESC_USED;
@@ -114,10 +112,15 @@ static inline void set_desc_used(struct vring *vr, struct vring_desc_1_1 *desc)
 	}
 }
 
-	if (vr->avail_wrap_counter)
+static inline void set_desc_avail(struct vring *vr, struct vring_desc_1_1 *desc)
+{
+	if (vr->avail_wrap_counter) {
 		desc->flags |= DESC_AVAIL;
-	else
+		desc->flags &= ~DESC_USED;
+	} else {
 		desc->flags &= ~DESC_AVAIL;
+		desc->flags |= DESC_USED;
+	}
 }
 
 static inline int desc_is_used(struct vring *vr, struct vring_desc_1_1 *desc)
@@ -155,6 +158,7 @@ static inline int desc_is_avail(struct vring *vr, struct vring_desc_1_1 *desc)
 	if ((vr->avail_wrap_counter == 0) && !(desc->flags & DESC_AVAIL))
 		return 1;
 	return 0;
+*/
 }
 
 
