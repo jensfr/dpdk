@@ -246,6 +246,17 @@ struct virtio_tx_region {
 			   __attribute__((__aligned__(16)));
 };
 
+static inline uint16_t
+update_pq_avail_index(struct virtqueue *vq)
+{
+	if (++vq->vq_avail_idx >= vq->vq_nentries) {
+		vq->vq_avail_idx = 0;
+		vq->vq_ring.avail_wrap_counter ^= 1;
+	}
+
+	return vq->vq_avail_idx;
+}
+
 static inline void
 vring_desc_init_packed(struct virtqueue *vq, int n)
 {
