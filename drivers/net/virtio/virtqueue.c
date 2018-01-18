@@ -43,6 +43,9 @@ virtqueue_rxvq_flush(struct virtqueue *vq)
 	uint16_t used_idx, desc_idx;
 	uint16_t nb_used, i;
 
+	if (vtpci_packed_queue(vq->hw))
+		return;
+
 	nb_used = VIRTQUEUE_NUSED(vq);
 
 	for (i = 0; i < nb_used; i++) {
