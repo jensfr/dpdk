@@ -177,6 +177,10 @@ struct virtqueue {
 	uint16_t vq_avail_idx; /**< sync until needed */
 	uint16_t vq_free_thresh; /**< free threshold */
 
+	/* for packed virtqueues */
+	unsigned int avail_wrap_counter;
+	unsigned int used_wrap_counter;
+
 	void *vq_ring_virt_mem;  /**< linear address of vring*/
 	unsigned int vq_ring_size;
 
@@ -245,6 +249,31 @@ struct virtio_tx_region {
 	struct vring_desc tx_indir[VIRTIO_MAX_TX_INDIRECT]
 			   __attribute__((__aligned__(16)));
 };
+
+static inline void
+_set_desc_avail(struct vring_desc_packed *desc, int wrap_counter)
+{
+	desc->flags |= VRING_DESC_F_AVAIL(wrap_counter) |
+		       VRING_DESC_F_USED(!wrap_counter);
+}
+
+static inline void
+set_desc_avail(struct virtqueue *vq, struct vring_desc_packed *desc)
+{
+	_set_desc_avail(desc, vq->avail_wrap_counter);
+}
+
+static inline int
+desc_is_used(struct vring_desc_packed *desc, struct virtqueue *vq)
+{
+	uint16_t used, flags;
+
+	flags = desc->flags;
+	used = !!(flags & VRING_DESC_F_USED(1));
+
+	return used == vq->used_wrap_counter;
+}
+
 
 static inline void
 vring_desc_init_packed(struct virtqueue *vq, int n)
