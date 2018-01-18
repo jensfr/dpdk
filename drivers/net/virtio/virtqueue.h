@@ -251,6 +251,32 @@ struct virtio_tx_region {
 };
 
 static inline void
+_set_desc_avail(struct vring_desc_packed *desc, int wrap_counter)
+{
+	desc->flags |= VRING_DESC_F_AVAIL(wrap_counter) |
+		       VRING_DESC_F_USED(!wrap_counter);
+}
+
+static inline void
+set_desc_avail(struct virtqueue *vq, struct vring_desc_packed *desc)
+{
+	_set_desc_avail(desc, vq->avail_wrap_counter);
+}
+
+static inline int
+desc_is_used(struct vring_desc_packed *desc, struct virtqueue *vq)
+{
+	uint16_t used, avail, flags;
+
+	flags = desc->flags;
+	used = !!(flags & VRING_DESC_F_USED(1));
+	avail = !!(flags & VRING_DESC_F_AVAIL(1));
+
+	return avail == used && used == vq->used_wrap_counter;
+}
+
+
+static inline void
 vring_desc_init_packed(struct virtqueue *vq, int n)
 {
 	int i;
@@ -277,10 +303,49 @@ vring_desc_init_split(struct vring_desc *dp, uint16_t n)
  * Tell the backend not to interrupt us.
  */
 static inline void
+virtqueue_disable_intr_packed(struct virtqueue *vq)
+{
+	uint16_t *event_flags = &vq->ring_packed.driver_event->desc_event_flags;
+
+	if (*event_flags != RING_EVENT_FLAGS_DISABLE) {
+		*event_flags = RING_EVENT_FLAGS_DISABLE;
+	}
+}
+
+
+/**
+ * Tell the backend not to interrupt us.
+ */
+static inline void
 virtqueue_disable_intr(struct virtqueue *vq)
 {
-	vq->vq_ring.avail->flags |= VRING_AVAIL_F_NO_INTERRUPT;
+	if (vtpci_packed_queue(vq->hw))
+		virtqueue_disable_intr_packed(vq);
+	else
+		vq->vq_ring.avail->flags |= VRING_AVAIL_F_NO_INTERRUPT;
 }
+
+/**
+ * Tell the backend to interrupt us.
+ */
+static inline void
+virtqueue_enable_intr_packed(struct virtqueue *vq)
+{
+	uint16_t *off_wrap = &vq->ring_packed.driver_event->desc_event_off_wrap;
+	uint16_t *event_flags = &vq->ring_packed.driver_event->desc_event_flags;
+
+	*off_wrap = vq->vq_used_cons_idx |
+		((uint16_t)(vq->used_wrap_counter << 15));
+
+	if (vq->event_flags_shadow == RING_EVENT_FLAGS_DISABLE) {
+		virtio_wmb();
+		vq->event_flags_shadow =
+			vtpci_with_feature(vq->hw, VIRTIO_RING_F_EVENT_IDX) ?
+				RING_EVENT_FLAGS_DESC : RING_EVENT_FLAGS_ENABLE;
+		*event_flags = vq->event_flags_shadow;
+	}
+}
+
 
 /**
  * Tell the backend to interrupt us.
@@ -288,7 +353,10 @@ virtqueue_disable_intr(struct virtqueue *vq)
 static inline void
 virtqueue_enable_intr(struct virtqueue *vq)
 {
-	vq->vq_ring.avail->flags &= (~VRING_AVAIL_F_NO_INTERRUPT);
+	if (vtpci_packed_queue(vq->hw))
+		virtqueue_enable_intr_packed(vq);
+	else
+		vq->vq_ring.avail->flags &= (~VRING_AVAIL_F_NO_INTERRUPT);
 }
 
 /**
