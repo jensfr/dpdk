@@ -74,11 +74,43 @@ struct vring_desc_1_1 {
 
 struct vring {
 	unsigned int num;
+	unsigned int avail_wrap_counter;
 	struct vring_desc  *desc;
 	struct vring_avail *avail;
 	struct vring_used  *used;
 	struct vring_desc_1_1 *desc_1_1;
 };
+
+static inline void toggle_wrap_counter(struct vring *vr)
+{
+	vr->avail_wrap_counter ^= 1;
+}
+
+static inline void _set_desc_avail(struct vring_desc_1_1 *desc,
+				   int wrap_counter)
+{
+	uint16_t flags = desc->flags;
+
+	if (wrap_counter) {
+		flags |= DESC_AVAIL;
+		flags &= ~DESC_USED;
+	} else {
+		flags &= ~DESC_AVAIL;
+		flags |= DESC_USED;
+	}
+
+	desc->flags = flags;
+}
+
+static inline void set_desc_avail(struct vring *vr, struct vring_desc_1_1 *desc)
+{
+	_set_desc_avail(desc, vr->avail_wrap_counter);
+}
+
+static inline int desc_is_used(struct vring_desc_1_1 *desc)
+{
+	return !(desc->flags & DESC_AVAIL) == !(desc->flags & DESC_USED);
+}
 
 /* The standard layout for the ring is a continuous chunk of memory which
  * looks like this.  We assume num is a power of 2.
