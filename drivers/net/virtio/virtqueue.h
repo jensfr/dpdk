@@ -251,6 +251,44 @@ struct virtio_tx_region {
 			   __attribute__((__aligned__(16)));
 };
 
+static inline void
+_set_desc_avail(struct vring_packed_desc *desc, int wrap_counter)
+{
+	desc->flags |= VRING_DESC_F_AVAIL(wrap_counter) |
+		       VRING_DESC_F_USED(!wrap_counter);
+}
+
+static inline void
+set_desc_avail(struct virtqueue *vq, struct vring_packed_desc *desc)
+{
+	_set_desc_avail(desc, vq->avail_wrap_counter);
+}
+
+static inline int
+desc_is_used(struct vring_packed_desc *desc, struct virtqueue *vq)
+{
+	uint16_t used, avail, flags;
+
+	flags = desc->flags;
+	used = !!(flags & VRING_DESC_F_USED(1));
+	avail = !!(flags & VRING_DESC_F_AVAIL(1));
+
+	return avail == used && used == vq->used_wrap_counter;
+}
+
+
+static inline void
+vring_desc_init_packed(struct virtqueue *vq, int n)
+{
+	int i;
+	for (i = 0; i < n - 1; i++) {
+		vq->ring_packed.desc_packed[i].id = i;
+		vq->vq_descx[i].next = i + 1;
+	}
+	vq->ring_packed.desc_packed[i].id = i;
+	vq->vq_descx[i].next = VQ_RING_DESC_CHAIN_END;
+}
+
 /* Chain all the descriptors in the ring with an END */
 static inline void
 vring_desc_init(struct vring_desc *dp, uint16_t n)
@@ -266,9 +304,55 @@ vring_desc_init(struct vring_desc *dp, uint16_t n)
  * Tell the backend not to interrupt us.
  */
 static inline void
+virtqueue_disable_intr_packed(struct virtqueue *vq)
+{
+	uint16_t *event_flags = &vq->ring_packed.driver_event->desc_event_flags;
+
+	if (*event_flags != RING_EVENT_FLAGS_DISABLE)
+		*event_flags = RING_EVENT_FLAGS_DISABLE;
+}
+
+
+/**
+ * Tell the backend not to interrupt us.
+ */
+static inline void
 virtqueue_disable_intr(struct virtqueue *vq)
 {
-	vq->vq_ring.avail->flags |= VRING_AVAIL_F_NO_INTERRUPT;
+	if (vtpci_packed_queue(vq->hw))
+		virtqueue_disable_intr_packed(vq);
+	else
+		vq->vq_ring.avail->flags |= VRING_AVAIL_F_NO_INTERRUPT;
+}
+
+/**
+ * Tell the backend to interrupt. Implementation for packed virtqueues.
+ */
+static inline void
+virtqueue_enable_intr_packed(struct virtqueue *vq)
+{
+	uint16_t *off_wrap = &vq->ring_packed.driver_event->desc_event_off_wrap;
+	uint16_t *event_flags = &vq->ring_packed.driver_event->desc_event_flags;
+
+	*off_wrap = vq->vq_used_cons_idx |
+		((uint16_t)(vq->used_wrap_counter << 15));
+
+	if (vq->event_flags_shadow == RING_EVENT_FLAGS_DISABLE) {
+		virtio_wmb();
+		vq->event_flags_shadow =
+			vtpci_with_feature(vq->hw, VIRTIO_RING_F_EVENT_IDX) ?
+				RING_EVENT_FLAGS_DESC : RING_EVENT_FLAGS_ENABLE;
+		*event_flags = vq->event_flags_shadow;
+	}
+}
+
+/**
+ * Tell the backend to interrupt. Implementation for split virtqueues.
+ */
+static inline void
+virtqueue_enable_intr_split(struct virtqueue *vq)
+{
+	vq->vq_ring.avail->flags &= (~VRING_AVAIL_F_NO_INTERRUPT);
 }
 
 /**
@@ -277,7 +361,10 @@ virtqueue_disable_intr(struct virtqueue *vq)
 static inline void
 virtqueue_enable_intr(struct virtqueue *vq)
 {
-	vq->vq_ring.avail->flags &= (~VRING_AVAIL_F_NO_INTERRUPT);
+	if (vtpci_packed_queue(vq->hw))
+		virtqueue_enable_intr_packed(vq);
+	else
+		virtqueue_enable_intr_split(vq);
 }
 
 /**
