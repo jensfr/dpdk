@@ -19,6 +19,7 @@
 
 #include "iotlb.h"
 #include "vhost.h"
+#include "virtio-1.1.h"
 
 #define MAX_PKT_BURST 32
 
@@ -1109,6 +1110,199 @@ restore_mbuf(struct rte_mbuf *m)
 		m->buf_iova = rte_mempool_virt2iova(m) + mbuf_size;
 		m = m->next;
 	}
+}
+
+static inline uint16_t
+dequeue_desc(struct virtio_net *dev, struct vhost_virtqueue *vq,
+	     struct rte_mempool *mbuf_pool, struct rte_mbuf *m,
+	     struct vring_desc_1_1 *descs)
+{
+	struct vring_desc_1_1 *desc;
+	uint64_t desc_addr;
+	uint32_t desc_avail, desc_offset;
+	uint32_t mbuf_avail, mbuf_offset;
+	uint32_t cpy_len;
+	struct rte_mbuf *cur = m, *prev = m;
+	struct virtio_net_hdr *hdr = NULL;
+	uint16_t head_idx = vq->last_used_idx & (vq->size - 1);
+	int wrap_counter = vq->used_wrap_counter;
+
+	desc = &descs[vq->last_used_idx & (vq->size - 1)];
+	if (unlikely((desc->len < dev->vhost_hlen)) ||
+			(desc->flags & VRING_DESC_F_INDIRECT))
+		rte_panic("INDIRECT not supported yet");
+
+	desc_addr = rte_vhost_gpa_to_vva(dev->mem, desc->addr);
+	if (unlikely(!desc_addr))
+		return -1;
+
+	if (virtio_net_with_host_offload(dev)) {
+		hdr = (struct virtio_net_hdr *)((uintptr_t)desc_addr);
+		rte_prefetch0(hdr);
+	}
+
+	/*
+	 * A virtio driver normally uses at least 2 desc buffers
+	 * for Tx: the first for storing the header, and others
+	 * for storing the data.
+	 */
+	if (likely((desc->len == dev->vhost_hlen) &&
+		   (desc->flags & VRING_DESC_F_NEXT) != 0)) {
+		if ((++vq->last_used_idx & (vq->size - 1)) == 0)
+			toggle_wrap_counter(vq);
+
+		desc = &descs[vq->last_used_idx & (vq->size - 1)];
+
+		if (unlikely(desc->flags & VRING_DESC_F_INDIRECT))
+			rte_panic("INDIRECT not supported yet");
+
+		desc_addr = rte_vhost_gpa_to_vva(dev->mem, desc->addr);
+		if (unlikely(!desc_addr))
+			return -1;
+
+		desc_offset = 0;
+		desc_avail  = desc->len;
+	} else {
+		desc_avail  = desc->len - dev->vhost_hlen;
+		desc_offset = dev->vhost_hlen;
+	}
+
+	rte_prefetch0((void *)(uintptr_t)(desc_addr + desc_offset));
+
+	PRINT_PACKET(dev, (uintptr_t)(desc_addr + desc_offset), desc_avail, 0);
+
+	mbuf_offset = 0;
+	mbuf_avail  = m->buf_len - RTE_PKTMBUF_HEADROOM;
+	while (1) {
+		uint64_t hpa;
+
+		cpy_len = RTE_MIN(desc_avail, mbuf_avail);
+
+		/*
+		 * A desc buf might across two host physical pages that are
+		 * not continuous. In such case (gpa_to_hpa returns 0), data
+		 * will be copied even though zero copy is enabled.
+		 */
+		if (unlikely(dev->dequeue_zero_copy && (hpa = gpa_to_hpa(dev,
+					desc->addr + desc_offset, cpy_len)))) {
+			cur->data_len = cpy_len;
+			cur->data_off = 0;
+			cur->buf_addr = (void *)(uintptr_t)desc_addr;
+			cur->buf_physaddr = hpa;
+
+			/*
+			 * In zero copy mode, one mbuf can only reference data
+			 * for one or partial of one desc buff.
+			 */
+			mbuf_avail = cpy_len;
+		} else {
+			rte_memcpy(rte_pktmbuf_mtod_offset(cur, void *,
+							   mbuf_offset),
+				(void *)((uintptr_t)(desc_addr + desc_offset)),
+				cpy_len);
+		}
+
+		mbuf_avail  -= cpy_len;
+		mbuf_offset += cpy_len;
+		desc_avail  -= cpy_len;
+		desc_offset += cpy_len;
+
+		/* This desc reaches to its end, get the next one */
+		if (desc_avail == 0) {
+			if ((desc->flags & VRING_DESC_F_NEXT) == 0)
+				break;
+
+			if ((++vq->last_used_idx & (vq->size - 1)) == 0)
+				toggle_wrap_counter(vq);
+
+			desc = &descs[vq->last_used_idx & (vq->size - 1)];
+			if (unlikely(desc->flags & VRING_DESC_F_INDIRECT))
+				rte_panic("INDIRECT not supported yet");
+
+			desc_addr = rte_vhost_gpa_to_vva(dev->mem, desc->addr);
+			if (unlikely(!desc_addr))
+				return -1;
+
+			rte_prefetch0((void *)(uintptr_t)desc_addr);
+
+			desc_offset = 0;
+			desc_avail  = desc->len;
+
+			PRINT_PACKET(dev, (uintptr_t)desc_addr, desc->len, 0);
+		}
+
+		/*
+		 * This mbuf reaches to its end, get a new one
+		 * to hold more data.
+		 */
+		if (mbuf_avail == 0) {
+			cur = rte_pktmbuf_alloc(mbuf_pool);
+			if (unlikely(cur == NULL)) {
+				RTE_LOG(ERR, VHOST_DATA, "Failed to "
+					"allocate memory for mbuf.\n");
+				return -1;
+			}
+
+			prev->next = cur;
+			prev->data_len = mbuf_offset;
+			m->nb_segs += 1;
+			m->pkt_len += mbuf_offset;
+			prev = cur;
+
+			mbuf_offset = 0;
+			mbuf_avail  = cur->buf_len - RTE_PKTMBUF_HEADROOM;
+		}
+	}
+
+	if (hdr)
+		vhost_dequeue_offload(hdr, m);
+
+	if ((++vq->last_used_idx & (vq->size - 1)) == 0)
+		toggle_wrap_counter(vq);
+
+	rte_smp_wmb();
+	_set_desc_used(&descs[head_idx], wrap_counter);
+
+	prev->data_len = mbuf_offset;
+	m->pkt_len    += mbuf_offset;
+
+	return 0;
+}
+
+static inline uint16_t
+vhost_dequeue_burst_1_1(struct virtio_net *dev, struct vhost_virtqueue *vq,
+			struct rte_mempool *mbuf_pool, struct rte_mbuf **pkts,
+			uint16_t count)
+{
+	uint16_t i;
+	uint16_t idx;
+	struct vring_desc_1_1 *desc = vq->desc_1_1;
+	int err;
+
+	count = RTE_MIN(MAX_PKT_BURST, count);
+	for (i = 0; i < count; i++) {
+		idx = vq->last_used_idx & (vq->size - 1);
+		if (!desc_is_avail(vq, &desc[idx]))
+			break;
+		rte_smp_rmb();
+
+		pkts[i] = rte_pktmbuf_alloc(mbuf_pool);
+		if (unlikely(pkts[i] == NULL)) {
+			RTE_LOG(ERR, VHOST_DATA,
+				"Failed to allocate memory for mbuf.\n");
+			break;
+		}
+
+		err = dequeue_desc(dev, vq, mbuf_pool, pkts[i], desc);
+		if (unlikely(err)) {
+			rte_pktmbuf_free(pkts[i]);
+			break;
+		}
+	}
+
+	rte_spinlock_unlock(&vq->access_lock);
+
+	return i;
 }
 
 uint16_t
