@@ -173,7 +173,9 @@ struct vhost_msg {
 #ifndef VIRTIO_F_VERSION_1
  #define VIRTIO_F_VERSION_1 32
 #endif
-
+#ifndef VIRTIO_F_RING_PACKED
+ #define VIRTIO_F_RING_PACKED 34
+#endif
 #define VHOST_USER_F_PROTOCOL_FEATURES	30
 
 /* Features supported by this builtin vhost-user net driver. */
