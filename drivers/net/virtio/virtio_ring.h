@@ -16,7 +16,12 @@
 #define VRING_DESC_F_WRITE      2
 /* This means the buffer contains a list of buffer descriptors. */
 #define VRING_DESC_F_INDIRECT   4
-
+/* This flag means the descriptor was made available by the driver */
+#define VRING_DESC_F_AVAIL     7
+/* This flag means the descriptor was used by the device */
+#define VRING_DESC_F_USED      15
+#define DESC_USED (1ULL << VRING_DESC_F_USED)
+#define DESC_AVAIL (1ULL << VRING_DESC_F_AVAIL)
 /* The Host uses this in used->flags to advise the Guest: don't kick me
  * when you add a buffer.  It's unreliable, so it's simply an
  * optimization.  Guest will still kick if it's out of buffers. */
