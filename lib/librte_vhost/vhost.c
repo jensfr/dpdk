@@ -185,6 +185,7 @@ init_vring_queue(struct virtio_net *dev, uint32_t vring_idx)
 
 	vq->kickfd = VIRTIO_UNINITIALIZED_EVENTFD;
 	vq->callfd = VIRTIO_UNINITIALIZED_EVENTFD;
+	vq->used_wrap_counter = 1;
 
 	vhost_user_iotlb_init(dev, vring_idx);
 	/* Backends are set to -1 indicating an inactive device. */
