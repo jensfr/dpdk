@@ -108,6 +108,7 @@ struct vhost_virtqueue {
 
 	struct batch_copy_elem	*batch_copy_elems;
 	uint16_t		batch_copy_nb_elems;
+	uint32_t		used_wrap_counter;
 
 	rte_rwlock_t	iotlb_lock;
 	rte_rwlock_t	iotlb_pending_lock;
