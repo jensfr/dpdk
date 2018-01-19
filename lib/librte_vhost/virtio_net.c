@@ -695,6 +695,135 @@ out_access_unlock:
 	return pkt_idx;
 }
 
+static inline uint32_t __attribute__((always_inline))
+vhost_enqueue_burst_packed(struct virtio_net *dev, uint16_t queue_id,
+	      struct rte_mbuf **pkts, uint32_t count)
+{
+	struct vhost_virtqueue *vq;
+	struct vring_desc_packed *descs;
+	uint16_t idx;
+	uint16_t mask;
+	uint16_t i;
+
+	vq = dev->virtqueue[queue_id];
+
+	rte_spinlock_lock(&vq->access_lock);
+
+	if (unlikely(vq->enabled == 0)) {
+		i = 0;
+		goto out_access_unlock;
+	}
+
+	if (dev->features & (1ULL << VIRTIO_F_IOMMU_PLATFORM))
+		vhost_user_iotlb_rd_lock(vq);
+
+	descs = vq->desc_packed;
+	mask = vq->size - 1;
+
+	for (i = 0; i < count; i++) {
+		uint32_t desc_avail, desc_offset;
+		uint32_t mbuf_avail, mbuf_offset;
+		uint32_t cpy_len;
+		struct vring_desc_packed *desc;
+		uint64_t desc_addr;
+		struct virtio_net_hdr_mrg_rxbuf *hdr;
+		struct rte_mbuf *m = pkts[i];
+
+		idx = vq->last_used_idx & mask;
+		desc = &descs[idx];
+
+		if (!desc_is_avail(vq, desc))
+			break;
+		rte_smp_rmb();
+
+		desc_addr = vhost_iova_to_vva(dev, vq, desc->addr,
+					      sizeof(*desc), VHOST_ACCESS_RW);
+		/*
+		 * Checking of 'desc_addr' placed outside of 'unlikely' macro
+		 * to avoid performance issue with some versions of gcc (4.8.4
+		 * and 5.3.0) which otherwise stores offset on the stack instead
+		 * of in a register.
+		 */
+		if (unlikely(desc->len < dev->vhost_hlen) || !desc_addr)
+			break;
+
+		hdr = (struct virtio_net_hdr_mrg_rxbuf *)(uintptr_t)desc_addr;
+		virtio_enqueue_offload(m, &hdr->hdr);
+		vhost_log_write(dev, desc->addr, dev->vhost_hlen);
+		PRINT_PACKET(dev, (uintptr_t)desc_addr, dev->vhost_hlen, 0);
+
+		desc_offset = dev->vhost_hlen;
+		desc_avail  = desc->len - dev->vhost_hlen;
+
+		mbuf_avail  = rte_pktmbuf_data_len(m);
+		mbuf_offset = 0;
+		while (mbuf_avail != 0 || m->next != NULL) {
+			/* done with current mbuf, fetch next */
+			if (mbuf_avail == 0) {
+				m = m->next;
+
+				mbuf_offset = 0;
+				mbuf_avail  = rte_pktmbuf_data_len(m);
+			}
+
+			/* done with current desc buf, fetch next */
+			if (desc_avail == 0) {
+				if ((desc->flags & VRING_DESC_F_NEXT) == 0) {
+					/* Room in vring buffer is not enough */
+					goto out;
+				}
+
+				idx = (idx+1) & (vq->size - 1);
+				desc = &descs[idx];
+				if (unlikely(!desc_is_avail(vq, desc)))
+					goto out;
+
+				desc_addr = vhost_iova_to_vva(dev, vq,
+						desc->addr, sizeof(*desc),
+						VHOST_ACCESS_RW);
+				if (unlikely(!desc_addr))
+					goto out;
+
+				desc_offset = 0;
+				desc_avail  = desc->len;
+			}
+
+			cpy_len = RTE_MIN(desc_avail, mbuf_avail);
+			rte_memcpy((void *)((uintptr_t)
+				(desc_addr + desc_offset)),
+				rte_pktmbuf_mtod_offset(m, void *, mbuf_offset),
+				cpy_len);
+			vhost_log_write(dev, desc->addr + desc_offset, cpy_len);
+			PRINT_PACKET(dev, (uintptr_t)(desc_addr + desc_offset),
+				     cpy_len, 0);
+
+			mbuf_avail  -= cpy_len;
+			mbuf_offset += cpy_len;
+			desc_avail  -= cpy_len;
+			desc_offset += cpy_len;
+		}
+
+		descs[idx].len = pkts[i]->pkt_len + dev->vhost_hlen;
+		rte_smp_wmb();
+		set_desc_used(vq, desc);
+
+		vq->last_used_idx++;
+		if ((vq->last_used_idx & (vq->size - 1)) == 0)
+			toggle_wrap_counter(vq);
+	}
+
+out:
+	if (dev->features & (1ULL << VIRTIO_F_IOMMU_PLATFORM))
+		vhost_user_iotlb_rd_unlock(vq);
+
+out_access_unlock:
+	rte_spinlock_unlock(&vq->access_lock);
+
+	count = i;
+
+	return count;
+}
+
 uint16_t
 rte_vhost_enqueue_burst(int vid, uint16_t queue_id,
 	struct rte_mbuf **pkts, uint16_t count)
