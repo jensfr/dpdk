@@ -313,12 +313,11 @@ virtio_init_vring(struct virtqueue *vq)
 		vq->vq_desc_tail_idx = (uint16_t)(vq->vq_nentries - 1);
 
 		vring_desc_init(vr->desc, size);
+		/*
+		 * Disable device(host) interrupting guest
+		 */
+		virtqueue_disable_intr(vq);
 	}
-
-	/*
-	 * Disable device(host) interrupting guest
-	 */
-	virtqueue_disable_intr(vq);
 }
 
 static int
@@ -736,7 +735,8 @@ virtio_dev_rx_queue_intr_disable(struct rte_eth_dev *dev, uint16_t queue_id)
 	struct virtnet_rx *rxvq = dev->data->rx_queues[queue_id];
 	struct virtqueue *vq = rxvq->vq;
 
-	virtqueue_disable_intr(vq);
+	if (!vtpci_packed_queue(vq->hw))
+		virtqueue_disable_intr(vq);
 	return 0;
 }
 
