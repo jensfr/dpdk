@@ -17,4 +17,47 @@ struct vring_desc_1_1 {
 	uint16_t flags;
 };
 
+static inline void
+toggle_wrap_counter(struct vhost_virtqueue *vq)
+{
+	vq->used_wrap_counter ^= 1;
+}
+
+static inline int
+desc_is_avail(struct vhost_virtqueue *vq, struct vring_desc_1_1 *desc)
+{
+	if (!vq)
+		return -1;
+
+	if (vq->used_wrap_counter == 1)
+		if ((desc->flags & DESC_AVAIL) && !(desc->flags & DESC_USED))
+			return 1;
+	if (vq->used_wrap_counter == 0)
+		if (!(desc->flags & DESC_AVAIL) && (desc->flags & DESC_USED))
+			return 1;
+	return 0;
+}
+
+static inline void
+_set_desc_used(struct vring_desc_1_1 *desc, int wrap_counter)
+{
+	uint16_t flags = desc->flags;
+
+	if (wrap_counter == 1) {
+		flags |= DESC_USED;
+		flags |= DESC_AVAIL;
+	} else {
+		flags &= ~DESC_USED;
+		flags &= ~DESC_AVAIL;
+	}
+
+	desc->flags = flags;
+}
+
+static inline void
+set_desc_used(struct vhost_virtqueue *vq, struct vring_desc_1_1 *desc)
+{
+	_set_desc_used(desc, vq->used_wrap_counter);
+}
+
 #endif /* __VIRTIO_1_1_H */
