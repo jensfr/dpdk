@@ -384,6 +384,12 @@ virtqueue_notify(struct virtqueue *vq)
 	uint16_t used_idx, nused; \
 	used_idx = (vq)->vq_ring.used->idx; \
 	nused = (uint16_t)(used_idx - (vq)->vq_used_cons_idx); \
+	if (vtpci_packed_queue((vq)->hw)) { \
+	  PMD_INIT_LOG(DEBUG, \
+	  "VQ: - size=%d; free=%d; last_used_idx=%d;", \
+	  (vq)->vq_nentries, (vq)->vq_free_cnt, nused); \
+	  break; \
+	} \
 	PMD_INIT_LOG(DEBUG, \
 	  "VQ: - size=%d; free=%d; used=%d; desc_head_idx=%d;" \
 	  " avail.idx=%d; used_cons_idx=%d; used.idx=%d;" \
