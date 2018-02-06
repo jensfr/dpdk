@@ -1195,6 +1195,13 @@ virtio_negotiate_features(struct virtio_hw *hw, uint64_t req_features)
 			req_features &= ~(1ULL << VIRTIO_NET_F_MTU);
 	}
 
+	if (req_features & (1ULL << VIRTIO_F_RING_PACKED)) {
+		req_features &= ~(1ull << VIRTIO_NET_F_CTRL_MAC_ADDR);
+		req_features &= ~(1ull << VIRTIO_NET_F_CTRL_VQ);
+		req_features &= ~(1ull << VIRTIO_NET_F_CTRL_RX);
+		req_features &= ~(1ull << VIRTIO_NET_F_CTRL_VLAN);
+	}
+
 	/*
 	 * Negotiate features: Subset of device feature bits are written back
 	 * guest feature bits.
