@@ -141,6 +141,75 @@ static const struct rte_virtio_xstats_name_off rte_virtio_txq_stat_strings[] = {
 
 struct virtio_hw_internal virtio_hw_internal[RTE_MAX_ETHPORTS];
 
+static struct virtio_pmd_ctrl *
+virtio_pq_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
+		int *dlen, int pkt_num)
+{
+	struct virtqueue *vq = cvq->vq;
+	int head_idx = (vq->vq_avail_idx++) & (vq->vq_nentries -1);
+	struct vring_desc_packed *desc = vq->vq_ring.desc_packed;
+	int used_idx = vq->vq_used_cons_idx & (vq->vq_nentries - 1);
+	int flags = desc[head_idx].flags;
+	struct virtio_pmd_ctrl *result;
+	int wrap_counter;
+	int sum = 0;
+	int i;
+
+	wrap_counter = vq->vq_ring.avail_wrap_counter;
+	if ((head_idx & (vq->vq_nentries - 1)) == 0)
+		toggle_wrap_counter(&vq->vq_ring);
+
+	for (i = 0; i < pkt_num; i++) {
+		flags |= VRING_DESC_F_NEXT;
+		desc[head_idx].addr = cvq->virtio_net_hdr_mem
+				+ sizeof(struct virtio_net_ctrl_hdr)
+				+ sizeof(ctrl->status) + sizeof(uint8_t) * sum;
+		desc[head_idx].len = dlen[i];
+		rte_smp_wmb();
+		desc[head_idx].flags = flags;
+		sum += dlen[i];
+		vq->vq_free_cnt--;
+		_set_desc_avail(&desc[head_idx], wrap_counter);
+		head_idx = (vq->vq_avail_idx++) & (vq->vq_nentries - 1);
+		if ((head_idx & (vq->vq_nentries - 1)) == 0)
+			toggle_wrap_counter(&vq->vq_ring);
+	}
+
+
+	flags = VRING_DESC_F_WRITE;
+	desc[head_idx].addr = cvq->virtio_net_hdr_mem
+				+ sizeof(struct virtio_net_ctrl_hdr);
+	desc[head_idx].len = sizeof(ctrl->status);
+	vq->vq_free_cnt--;
+	rte_smp_wmb();
+	_set_desc_avail(&desc[head_idx], wrap_counter);
+	desc[head_idx].flags = flags;
+
+	virtqueue_notify(vq);
+
+	rte_rmb();
+	/* wait for used descriptors in virtqueue */
+	while(!desc_is_used(&desc[head_idx])) {
+		rte_rmb();
+		usleep(100);
+	}
+
+	/* now get used descriptors */
+	while(desc_is_used(&desc[used_idx])) {
+		used_idx = (vq->vq_used_cons_idx++) & (vq->vq_nentries - 1);
+		vq->vq_free_cnt++;
+		rte_smp_wmb();
+		set_desc_avail(&vq->vq_ring, &desc[used_idx]);
+		if ((used_idx & (vq->vq_nentries - 1)) == 0)
+			toggle_wrap_counter(&vq->vq_ring);
+	 }
+
+	vq->vq_used_cons_idx = used_idx;
+
+	result = cvq->virtio_net_hdr_mz->addr;
+	return result;
+}
+
 static int
 virtio_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
 		int *dlen, int pkt_num)
@@ -173,6 +242,11 @@ virtio_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
 
 	memcpy(cvq->virtio_net_hdr_mz->addr, ctrl,
 		sizeof(struct virtio_pmd_ctrl));
+
+	if (vtpci_packed_queue(vq->hw)) {
+		result = virtio_pq_send_command(cvq, ctrl, dlen, pkt_num);
+		goto out_unlock;
+	}
 
 	/*
 	 * Format is enforced in qemu code:
@@ -245,6 +319,7 @@ virtio_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
 
 	result = cvq->virtio_net_hdr_mz->addr;
 
+out_unlock:
 	rte_spinlock_unlock(&cvq->lock);
 	return result->status;
 }
