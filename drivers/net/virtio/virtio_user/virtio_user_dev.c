@@ -350,10 +350,13 @@ virtio_user_dev_init(struct virtio_user_dev *dev, char *path, int queues,
 		return -1;
 	}
 
-	if (packed_queues)
+	if (packed_queues) {
 		dev->device_features |= (1ull << VIRTIO_F_RING_PACKED);
-	else
+		dev->device_features |= (1ull << VIRTIO_F_LIST_DESC);
+	} else {
 		dev->device_features &= ~(1ull << VIRTIO_F_RING_PACKED);
+		dev->device_features &= ~(1ull << VIRTIO_F_LIST_DESC);
+	}
 
 	if (dev->mac_specified)
 		dev->device_features |= (1ull << VIRTIO_NET_F_MAC);
