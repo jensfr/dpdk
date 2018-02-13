@@ -179,6 +179,7 @@ struct vhost_msg {
 #endif
 #ifndef VIRTIO_F_RING_PACKED
  #define VIRTIO_F_RING_PACKED 34
+ #define VIRTIO_F_LIST_DESC 36
 #endif
 #define VHOST_USER_F_PROTOCOL_FEATURES	30
 
@@ -191,6 +192,7 @@ struct vhost_msg {
 				(1ULL << VIRTIO_NET_F_MQ)      | \
 				(1ULL << VIRTIO_F_VERSION_1)   | \
 				(1ULL << VIRTIO_F_RING_PACKED) | \
+				(1ULL << VIRTIO_F_LIST_DESC) | \
 				(1ULL << VHOST_F_LOG_ALL)      | \
 				(1ULL << VHOST_USER_F_PROTOCOL_FEATURES) | \
 				(1ULL << VIRTIO_NET_F_GSO) | \
