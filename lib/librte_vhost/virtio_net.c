@@ -651,7 +651,10 @@ virtio_dev_merge_rx(struct virtio_net *dev, uint16_t queue_id,
 	rte_prefetch0(&vq->avail->ring[vq->last_avail_idx & (vq->size - 1)]);
 
 	vq->shadow_used_idx = 0;
-	avail_head = *((volatile uint16_t *)&vq->avail->idx);
+	if (dev->features & (1ULL << VIRTIO_F_RING_PACKED))
+		avail_head = vq->last_avail_idx;
+	else 
+		avail_head = *((volatile uint16_t *)&vq->avail->idx);
 	for (pkt_idx = 0; pkt_idx < count; pkt_idx++) {
 		uint32_t pkt_len = pkts[pkt_idx]->pkt_len + dev->vhost_hlen;
 
