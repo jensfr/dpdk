@@ -401,17 +401,53 @@ out_access_unlock:
 }
 
 static __rte_always_inline int
-fill_vec_buf(struct virtio_net *dev, struct vhost_virtqueue *vq,
-			 uint32_t avail_idx, uint32_t *vec_idx,
-			 struct buf_vector *buf_vec, uint16_t *desc_chain_head,
-			 uint16_t *desc_chain_len)
+__fill_vec_buf_packed(struct virtio_net *dev, struct vhost_virtqueue *vq,
+			 struct buf_vector *buf_vec,
+			 uint32_t *len, uint32_t *vec_id)
+{
+	uint16_t idx = vq->last_avail_idx & (vq->size - 1);
+	struct vring_desc_packed *descs= vq->desc_packed;
+	uint32_t _vec_id = *vec_id;
+
+	if (vq->desc_packed[idx].flags & VRING_DESC_F_INDIRECT) {
+		descs = (struct vring_desc_packed *)(uintptr_t)
+			vhost_iova_to_vva(dev, vq, vq->desc_packed[idx].addr,
+						vq->desc_packed[idx].len,
+						VHOST_ACCESS_RO);
+		if (unlikely(!descs))
+			return -1;
+
+		idx = 0;
+	}
+
+	while (1) {
+		if (unlikely(_vec_id >= BUF_VECTOR_MAX || idx >= vq->size))
+			return -1;
+
+		*len += descs[idx].len;
+		buf_vec[_vec_id].buf_addr = descs[idx].addr;
+		buf_vec[_vec_id].buf_len  = descs[idx].len;
+		buf_vec[_vec_id].desc_idx = idx;
+		_vec_id++;
+
+		if ((descs[idx].flags & VRING_DESC_F_NEXT) == 0)
+			break;
+
+		idx++;
+	}
+	*vec_id = _vec_id;
+
+	return 0;
+}
+
+static __rte_always_inline int
+__fill_vec_buf_split(struct virtio_net *dev, struct vhost_virtqueue *vq,
+			 struct buf_vector *buf_vec,
+			 uint32_t *len, uint32_t *vec_id, uint32_t avail_idx)
 {
 	uint16_t idx = vq->avail->ring[avail_idx & (vq->size - 1)];
-	uint32_t vec_id = *vec_idx;
-	uint32_t len    = 0;
 	struct vring_desc *descs = vq->desc;
-
-	*desc_chain_head = idx;
+	uint32_t _vec_id = *vec_id;
 
 	if (vq->desc[idx].flags & VRING_DESC_F_INDIRECT) {
 		descs = (struct vring_desc *)(uintptr_t)
@@ -425,19 +461,50 @@ fill_vec_buf(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	}
 
 	while (1) {
-		if (unlikely(vec_id >= BUF_VECTOR_MAX || idx >= vq->size))
+		if (unlikely(_vec_id >= BUF_VECTOR_MAX || idx >= vq->size))
 			return -1;
 
-		len += descs[idx].len;
-		buf_vec[vec_id].buf_addr = descs[idx].addr;
-		buf_vec[vec_id].buf_len  = descs[idx].len;
-		buf_vec[vec_id].desc_idx = idx;
-		vec_id++;
+		*len += descs[idx].len;
+		buf_vec[_vec_id].buf_addr = descs[idx].addr;
+		buf_vec[_vec_id].buf_len  = descs[idx].len;
+		buf_vec[_vec_id].desc_idx = idx;
+		_vec_id++;
 
 		if ((descs[idx].flags & VRING_DESC_F_NEXT) == 0)
 			break;
 
 		idx = descs[idx].next;
+	}
+	*vec_id = _vec_id;
+
+	return 0;
+}
+
+static __rte_always_inline int
+fill_vec_buf(struct virtio_net *dev, struct vhost_virtqueue *vq,
+			 uint32_t avail_idx, uint32_t *vec_idx,
+			 struct buf_vector *buf_vec, uint16_t *desc_chain_head,
+			 uint16_t *desc_chain_len)
+{
+	uint16_t idx = vq->avail->ring[avail_idx & (vq->size - 1)];
+	uint32_t vec_id = *vec_idx;
+	uint32_t len    = 0;
+
+	if (dev->features & (1ULL << VIRTIO_F_RING_PACKED)) {
+		idx = vq->last_avail_idx & (vq->size -1);
+	}
+
+
+	*desc_chain_head = idx;
+
+	if (dev->features & (1ULL << VIRTIO_F_RING_PACKED)) {
+		if (__fill_vec_buf_packed(dev, vq,
+				buf_vec, &len, &vec_id))
+			return -1;
+	} else {
+		if (__fill_vec_buf_split(dev, vq,
+				buf_vec, &len, &vec_id, avail_idx))
+			return -1;
 	}
 
 	*desc_chain_len = len;
@@ -472,7 +539,8 @@ reserve_avail_buf_mergeable(struct virtio_net *dev, struct vhost_virtqueue *vq,
 						&head_idx, &len) < 0))
 			return -1;
 		len = RTE_MIN(len, size);
-		update_shadow_used_ring(vq, head_idx, len);
+		if (!(dev->features & (1ULL << VIRTIO_F_RING_PACKED)))
+			update_shadow_used_ring(vq, head_idx, len);
 		size -= len;
 
 		cur_idx++;
@@ -653,7 +721,7 @@ virtio_dev_merge_rx(struct virtio_net *dev, uint16_t queue_id,
 	vq->shadow_used_idx = 0;
 	if (dev->features & (1ULL << VIRTIO_F_RING_PACKED))
 		avail_head = vq->last_avail_idx;
-	else 
+	else
 		avail_head = *((volatile uint16_t *)&vq->avail->idx);
 	for (pkt_idx = 0; pkt_idx < count; pkt_idx++) {
 		uint32_t pkt_len = pkts[pkt_idx]->pkt_len + dev->vhost_hlen;
@@ -664,7 +732,9 @@ virtio_dev_merge_rx(struct virtio_net *dev, uint16_t queue_id,
 			LOG_DEBUG(VHOST_DATA,
 				"(%d) failed to get enough desc from vring\n",
 				dev->vid);
-			vq->shadow_used_idx -= num_buffers;
+			
+			if (!dev->features & (1ULL & VIRTIO_F_RING_PACKED))
+				vq->shadow_used_idx -= num_buffers;
 			break;
 		}
 
@@ -674,7 +744,8 @@ virtio_dev_merge_rx(struct virtio_net *dev, uint16_t queue_id,
 
 		if (copy_mbuf_to_desc_mergeable(dev, vq, pkts[pkt_idx],
 						buf_vec, num_buffers) < 0) {
-			vq->shadow_used_idx -= num_buffers;
+			if (!dev->features & (1ULL & VIRTIO_F_RING_PACKED))
+				vq->shadow_used_idx -= num_buffers;
 			break;
 		}
 
@@ -683,9 +754,11 @@ virtio_dev_merge_rx(struct virtio_net *dev, uint16_t queue_id,
 
 	do_data_copy_enqueue(dev, vq);
 
-	if (likely(vq->shadow_used_idx)) {
-		flush_shadow_used_ring(dev, vq);
-		vhost_vring_call(dev, vq);
+	if (!(dev->features & (1ULL << VIRTIO_F_RING_PACKED))) {
+		if (likely(vq->shadow_used_idx)) {
+			flush_shadow_used_ring(dev, vq);
+			vhost_vring_call(dev, vq);
+		}
 	}
 
 out:
