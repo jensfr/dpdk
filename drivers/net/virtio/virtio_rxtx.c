@@ -87,6 +87,38 @@ vq_ring_free_chain(struct virtqueue *vq, uint16_t desc_idx)
 }
 
 static uint16_t
+virtqueue_dequeue_burst_rx_packed(struct virtqueue *vq, struct rte_mbuf **rx_pkts,
+			   uint32_t *len, uint16_t num)
+{
+	struct rte_mbuf *cookie;
+	uint16_t used_idx;
+	struct vring_desc_packed *desc;
+	uint16_t i;
+
+	for (i = 0; i < num; i++) {
+		used_idx = (uint16_t)(vq->vq_used_cons_idx & (vq->vq_nentries - 1));
+		desc = &vq->vq_ring.desc_packed[used_idx];
+		len[i] = desc->len;
+		cookie = (struct rte_mbuf *)vq->vq_descx[used_idx].cookie;
+
+		if (unlikely(cookie == NULL)) {
+			PMD_DRV_LOG(ERR, "vring descriptor with no mbuf cookie at %u",
+				vq->vq_used_cons_idx);
+			break;
+		}
+		rte_prefetch0(cookie);
+		rte_packet_prefetch(rte_pktmbuf_mtod(cookie, void *));
+		rx_pkts[i]  = cookie;
+		vq->vq_used_cons_idx++;
+		//vq_ring_free_chain(vq, desc_idx);
+		vq->vq_descx[used_idx].cookie = NULL;
+
+	}
+
+	return i;
+}
+
+static uint16_t
 virtqueue_dequeue_burst_rx(struct virtqueue *vq, struct rte_mbuf **rx_pkts,
 			   uint32_t *len, uint16_t num)
 {
@@ -155,6 +187,7 @@ virtqueue_enqueue_recv_refill(struct virtqueue *vq, struct rte_mbuf *cookie)
 	struct vq_desc_extra *dxp;
 	struct virtio_hw *hw = vq->hw;
 	struct vring_desc *start_dp;
+	struct vring_desc_packed *sdp_packed;
 	uint16_t needed = 1;
 	uint16_t head_idx, idx;
 
@@ -163,7 +196,10 @@ virtqueue_enqueue_recv_refill(struct virtqueue *vq, struct rte_mbuf *cookie)
 	if (unlikely(vq->vq_free_cnt < needed))
 		return -EMSGSIZE;
 
-	head_idx = vq->vq_desc_head_idx;
+	if (vtpci_packed_queue(vq->hw))
+		head_idx = vq->vq_used_cons_idx;
+	else
+		head_idx = vq->vq_desc_head_idx;
 	if (unlikely(head_idx >= vq->vq_nentries))
 		return -EFAULT;
 
@@ -172,19 +208,39 @@ virtqueue_enqueue_recv_refill(struct virtqueue *vq, struct rte_mbuf *cookie)
 	dxp->cookie = (void *)cookie;
 	dxp->ndescs = needed;
 
-	start_dp = vq->vq_ring.desc;
-	start_dp[idx].addr =
-		VIRTIO_MBUF_ADDR(cookie, vq) +
-		RTE_PKTMBUF_HEADROOM - hw->vtnet_hdr_size;
-	start_dp[idx].len =
-		cookie->buf_len - RTE_PKTMBUF_HEADROOM + hw->vtnet_hdr_size;
-	start_dp[idx].flags =  VRING_DESC_F_WRITE;
-	idx = start_dp[idx].next;
-	vq->vq_desc_head_idx = idx;
-	if (vq->vq_desc_head_idx == VQ_RING_DESC_CHAIN_END)
+	if (vtpci_packed_queue(vq->hw)) {
+		sdp_packed = vq->vq_ring.desc_packed;
+		sdp_packed[idx].addr =
+			VIRTIO_MBUF_ADDR(cookie, vq) +
+			RTE_PKTMBUF_HEADROOM - hw->vtnet_hdr_size;
+		sdp_packed[idx].len =
+			cookie->buf_len - RTE_PKTMBUF_HEADROOM +
+			hw->vtnet_hdr_size;
+		sdp_packed[idx].flags =  VRING_DESC_F_WRITE;
+		idx = (idx+1) & (vq->vq_nentries - 1);
+	} else {
+		start_dp = vq->vq_ring.desc;
+		start_dp[idx].addr =
+			VIRTIO_MBUF_ADDR(cookie, vq) +
+			RTE_PKTMBUF_HEADROOM - hw->vtnet_hdr_size;
+		start_dp[idx].len =
+			cookie->buf_len - RTE_PKTMBUF_HEADROOM +
+			hw->vtnet_hdr_size;
+		start_dp[idx].flags =  VRING_DESC_F_WRITE;
+		idx = start_dp[idx].next;
+	}
+	if (vtpci_packed_queue(vq->hw)) 
+		vq->vq_used_cons_idx = idx;
+	else
+		vq->vq_desc_head_idx = idx;
+	
+	if (!vtpci_packed_queue(vq->hw) && 
+	    vq->vq_desc_head_idx == VQ_RING_DESC_CHAIN_END)
 		vq->vq_desc_tail_idx = idx;
 	vq->vq_free_cnt = (uint16_t)(vq->vq_free_cnt - needed);
-	vq_update_avail_ring(vq, head_idx);
+	/* FIXME: what to do for packed queues? */
+	if (!vtpci_packed_queue(vq->hw))
+		vq_update_avail_ring(vq, head_idx);
 
 	return 0;
 }
@@ -498,7 +554,8 @@ virtio_dev_rx_queue_setup_finish(struct rte_eth_dev *dev, uint16_t queue_idx)
 			nbufs++;
 		}
 
-		vq_update_avail_idx(vq);
+		if (!vtpci_packed_queue(vq->hw))
+			vq_update_avail_idx(vq);
 	}
 
 	PMD_INIT_LOG(DEBUG, "Allocated %d bufs", nbufs);
@@ -968,6 +1025,7 @@ virtio_recv_mergeable_pkts(void *rx_queue,
 	uint32_t seg_res;
 	uint32_t hdr_size;
 	int offload;
+	uint32_t rx_num = 0;
 
 	nb_rx = 0;
 	if (unlikely(hw->started == 0))
@@ -993,7 +1051,10 @@ virtio_recv_mergeable_pkts(void *rx_queue,
 		if (nb_rx == nb_pkts)
 			break;
 
-		num = virtqueue_dequeue_burst_rx(vq, rcv_pkts, len, 1);
+		if (vtpci_packed_queue(vq->hw))
+			num = virtqueue_dequeue_burst_rx_packed(vq, rcv_pkts, len, 1);
+		else 
+			num = virtqueue_dequeue_burst_rx(vq, rcv_pkts, len, 1);
 		if (num != 1)
 			continue;
 
@@ -1045,9 +1106,12 @@ virtio_recv_mergeable_pkts(void *rx_queue,
 			uint16_t  rcv_cnt =
 				RTE_MIN(seg_res, RTE_DIM(rcv_pkts));
 			if (likely(VIRTQUEUE_NUSED(vq) >= rcv_cnt)) {
-				uint32_t rx_num =
-					virtqueue_dequeue_burst_rx(vq,
-					rcv_pkts, len, rcv_cnt);
+				if (vtpci_packed_queue(vq->hw))
+					rx_num = virtqueue_dequeue_burst_rx_packed(vq,
+							     rcv_pkts, len, rcv_cnt);
+				else
+					rx_num = virtqueue_dequeue_burst_rx(vq,
+							      rcv_pkts, len, rcv_cnt);
 				i += rx_num;
 				rcv_cnt = rx_num;
 			} else {
@@ -1090,6 +1154,9 @@ virtio_recv_mergeable_pkts(void *rx_queue,
 	}
 
 	rxvq->stats.packets += nb_rx;
+
+	if (vtpci_packed_queue(vq->hw))
+		return nb_rx;
 
 	/* Allocate new mbuf for the used descriptor */
 	error = ENOSPC;
