@@ -36,6 +36,7 @@
 #include <rte_flow.h>
 
 #include "testpmd.h"
+#include "fifo.h"
 
 /*
  * Forwarding of packets in I/O mode.
@@ -48,13 +49,22 @@ pkt_burst_io_forward(struct fwd_stream *fs)
 {
 	struct rte_mbuf *pkts_burst[MAX_PKT_BURST];
 	uint16_t nb_rx;
-	uint16_t nb_tx;
+	uint16_t nb_tx = 0;
 	uint32_t retry;
 
 #ifdef RTE_TEST_PMD_RECORD_CORE_CYCLES
 	uint64_t start_tsc;
 	uint64_t end_tsc;
 	uint64_t core_cycles;
+#endif
+#ifdef RTE_TEST_PMD_NOISY
+	const uint64_t freq_khz = rte_get_timer_hz() / 1000;
+	struct noisy_config *ncf = &noisy_cfg[fs->tx_queue];
+	struct rte_mbuf *tmp_pkts[MAX_PKT_BURST];
+	uint16_t nb_enqd;
+	uint16_t nb_deqd = 0;
+	uint64_t delta_ms;
+	uint64_t now;
 #endif
 
 #ifdef RTE_TEST_PMD_RECORD_CORE_CYCLES
@@ -73,8 +83,55 @@ pkt_burst_io_forward(struct fwd_stream *fs)
 #ifdef RTE_TEST_PMD_RECORD_BURST_STATS
 	fs->rx_burst_stats.pkt_burst_spread[nb_rx]++;
 #endif
+#ifdef RTE_TEST_PMD_NOISY
+	if (bsize_before_send > 0) {
+		if (rte_ring_free_count(ncf->f) >= nb_rx) {
+			/* enqueue into fifo */
+			nb_enqd = fifo_put(ncf->f, pkts_burst, nb_rx);
+			if (nb_enqd < nb_rx)
+				nb_rx = nb_enqd;
+		} else {
+			/* fifo is full, dequeue first */
+			nb_deqd = fifo_get(ncf->f, tmp_pkts, nb_rx);
+			/* enqueue into fifo */
+			nb_enqd = fifo_put(ncf->f, pkts_burst, nb_deqd);
+			if (nb_enqd < nb_rx)
+				nb_rx = nb_enqd;
+			if (nb_deqd > 0)
+				nb_tx = rte_eth_tx_burst(fs->tx_port,
+						fs->tx_queue, tmp_pkts,
+						nb_deqd);
+		}
+	} else {
+		nb_tx = rte_eth_tx_burst(fs->tx_port, fs->tx_queue,
+				pkts_burst, nb_rx);
+	}
+
+	/*
+	 * TX burst queue drain
+	 */
+	if (ncf->prev_time == 0) {
+		now = ncf->prev_time = rte_get_timer_cycles();
+	} else {
+		now = rte_get_timer_cycles();
+	}
+	delta_ms = (now - ncf->prev_time) / freq_khz;
+	if (unlikely(delta_ms >= flush_timer) && flush_timer > 0 && (nb_tx == 0)) {
+		while (fifo_count(ncf->f) > 0) {
+			nb_deqd = fifo_get(ncf->f, tmp_pkts, nb_rx);
+			nb_tx = rte_eth_tx_burst(fs->tx_port, fs->tx_queue,
+						 tmp_pkts, nb_deqd);
+			if(rte_ring_empty(ncf->f))
+				break;
+		}
+		ncf->prev_time = now;
+	}
+	if (nb_tx < nb_rx && fs->retry_enabled)
+		*pkts_burst = *tmp_pkts;
+#else
 	nb_tx = rte_eth_tx_burst(fs->tx_port, fs->tx_queue,
 			pkts_burst, nb_rx);
+#endif
 	/*
 	 * Retry if necessary
 	 */

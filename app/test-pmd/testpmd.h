@@ -9,6 +9,9 @@
 #include <rte_bus_pci.h>
 #include <rte_gro.h>
 #include <rte_gso.h>
+#ifdef RTE_TEST_PMD_NOISY
+#include "fifo.h"
+#endif
 
 #define RTE_PORT_ALL            (~(portid_t)0x0)
 
@@ -108,6 +111,15 @@ struct fwd_stream {
 	struct pkt_burst_stats tx_burst_stats;
 #endif
 };
+
+#ifdef RTE_TEST_PMD_NOISY
+struct noisy_config {
+	struct rte_ring *f;
+	uint64_t prev_time;
+};
+struct noisy_config *noisy_cfg;
+#endif
+
 
 /** Descriptor for a single flow. */
 struct port_flow {
@@ -381,6 +393,9 @@ extern int16_t rx_free_thresh;
 extern int8_t rx_drop_en;
 extern int16_t tx_free_thresh;
 extern int16_t tx_rs_thresh;
+
+extern uint16_t bsize_before_send;
+extern uint16_t flush_timer;
 
 extern uint8_t dcb_config;
 extern uint8_t dcb_test;
