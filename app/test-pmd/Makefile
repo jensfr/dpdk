@@ -34,6 +34,10 @@ SRCS-y += csumonly.c
 SRCS-y += icmpecho.c
 SRCS-$(CONFIG_RTE_LIBRTE_IEEE1588) += ieee1588fwd.c
 
+#ifeq ($(CONFIG_RTE_TEST_PMD_NOISY),y)
+#SRCS-y += fifo.c
+#endif
+
 ifeq ($(CONFIG_RTE_LIBRTE_PMD_SOFTNIC)$(CONFIG_RTE_LIBRTE_SCHED),yy)
 SRCS-y += tm.c
 endif

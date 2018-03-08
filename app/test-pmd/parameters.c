@@ -621,6 +621,8 @@ launch_args_parse(int argc, char** argv)
 		{ "print-event",		1, 0, 0 },
 		{ "mask-event",			1, 0, 0 },
 		{ "tx-offloads",		1, 0, 0 },
+		{ "buffersize-before-sending",  1, 0, 0 },
+		{ "flush-timer",                1, 0, 0 },
 		{ 0, 0, 0, 0 },
 	};
 
@@ -1102,7 +1104,24 @@ launch_args_parse(int argc, char** argv)
 					rte_exit(EXIT_FAILURE,
 						 "invalid mask-event argument\n");
 				}
-
+#ifdef RTE_TEST_PMD_NOISY
+			if (!strcmp(lgopts[opt_idx].name, "buffersize-before-sending")) {
+				n = atoi(optarg);
+				if (n > 0)
+					bsize_before_send = (uint16_t) n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "buffersize-before-sending must be > 0\n");
+			}
+			if (!strcmp(lgopts[opt_idx].name, "flush-timer")) {
+				n = atoi(optarg);
+				if (n >= 0)
+					flush_timer = (uint16_t) n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "flush-timer must be > 0\n");
+			}
+#endif
 			break;
 		case 'h':
 			usage(argv[0]);

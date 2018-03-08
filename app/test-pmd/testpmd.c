@@ -59,6 +59,9 @@
 #ifdef RTE_LIBRTE_LATENCY_STATS
 #include <rte_latencystats.h>
 #endif
+#ifdef RTE_TEST_PMD_NOISY
+#include "fifo.h"
+#endif
 
 #include "testpmd.h"
 
@@ -249,6 +252,18 @@ int16_t tx_free_thresh = RTE_PMD_PARAM_UNSET;
  */
 int16_t tx_rs_thresh = RTE_PMD_PARAM_UNSET;
 
+#ifdef RTE_TEST_PMD_NOISY
+/*
+ * Configurable value of buffered packed before sending.
+ */
+uint16_t bsize_before_send = 0;
+
+/*
+ * Configurable value of packet buffer timeout.
+ */
+uint16_t flush_timer = 0;
+#endif
+
 /*
  * Receive Side Scaling (RSS) configuration.
  */
@@ -400,6 +415,20 @@ static int all_ports_started(void);
 
 struct gso_status gso_ports[RTE_MAX_ETHPORTS];
 uint16_t gso_max_segment_size = ETHER_MAX_LEN - ETHER_CRC_LEN;
+
+#ifdef RTE_TEST_PMD_NOISY
+#define STRSIZE 256
+#define NOISY_RING "noisy_ring_%d:%d\n"
+struct rte_ring * fifo_init(uint32_t qi, uint32_t pi)
+{
+	struct noisy_config *n = &noisy_cfg[qi];
+	char name[STRSIZE];
+
+	snprintf(name, STRSIZE, NOISY_RING, pi, qi);
+	n->f = rte_ring_create(name, bsize_before_send, rte_socket_id(), 0);
+	return n->f;
+}
+#endif
 
 /*
  * Helper function to check if socket is already discovered.
@@ -1584,6 +1613,16 @@ start_port(portid_t pid)
 				return -1;
 			}
 		}
+#ifdef RTE_TEST_PMD_NOISY
+		noisy_cfg = (struct noisy_config *) rte_zmalloc("testpmd noisy fifo and timers",
+					nb_txq * sizeof(struct noisy_config),
+					RTE_CACHE_LINE_SIZE);
+		if (noisy_cfg == NULL) {
+			rte_exit(EXIT_FAILURE,
+					"rte_zmalloc(%d struct noisy_config) failed\n",
+					(int)(nb_txq * sizeof(struct noisy_config)));
+		}
+#endif
 		if (port->need_reconfig_queues > 0) {
 			port->need_reconfig_queues = 0;
 			port->tx_conf.txq_flags = ETH_TXQ_FLAGS_IGNORE;
@@ -1591,6 +1630,11 @@ start_port(portid_t pid)
 			port->tx_conf.offloads = port->dev_conf.txmode.offloads;
 			/* setup tx queues */
 			for (qi = 0; qi < nb_txq; qi++) {
+#ifdef RTE_TEST_PMD_NOISY
+				if (!fifo_init(qi, pi) && bsize_before_send > 0)
+					rte_exit(EXIT_FAILURE, "%s\n",
+						 rte_strerror(rte_errno));
+#endif
 				if ((numa_support) &&
 					(txring_numa[pi] != NUMA_NO_CONFIG))
 					diag = rte_eth_tx_queue_setup(pi, qi,
@@ -1755,6 +1799,10 @@ stop_port(portid_t pid)
 			RTE_PORT_HANDLING, RTE_PORT_STOPPED) == 0)
 			printf("Port %d can not be set into stopped\n", pi);
 		need_check_link_status = 1;
+
+#ifdef  RTE_TEST_PMD_NOISY
+		rte_free(noisy_cfg);
+#endif
 	}
 	if (need_check_link_status && !no_link_check)
 		check_all_ports_link_status(RTE_PORT_ALL);
