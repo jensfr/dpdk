@@ -621,6 +621,12 @@ launch_args_parse(int argc, char** argv)
 		{ "print-event",		1, 0, 0 },
 		{ "mask-event",			1, 0, 0 },
 		{ "tx-offloads",		1, 0, 0 },
+		{ "buffersize-before-sending",  1, 0, 0 },
+		{ "flush-timeout",              1, 0, 0 },
+		{ "memory-footprint",           1, 0, 0 },
+		{ "nb-rnd-write",               1, 0, 0 },
+		{ "nb-rnd-read",                1, 0, 0 },
+		{ "nb-rnd-read-write",          1, 0, 0 },
 		{ 0, 0, 0, 0 },
 	};
 
@@ -1101,7 +1107,54 @@ launch_args_parse(int argc, char** argv)
 					rte_exit(EXIT_FAILURE,
 						 "invalid mask-event argument\n");
 				}
-
+			if (!strcmp(lgopts[opt_idx].name, "buffersize-before-sending")) {
+				n = atoi(optarg);
+				if (n > 0)
+					bsize_before_send = (uint16_t) n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "buffersize-before-sending must be > 0\n");
+			}
+			if (!strcmp(lgopts[opt_idx].name, "flush-timeout")) {
+				n = atoi(optarg);
+				if (n >= 0)
+					flush_timer = (uint16_t) n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "flush-timeout must be > 0\n");
+			}
+			if (!strcmp(lgopts[opt_idx].name, "memory-footprint")) {
+				n = atoi(optarg);
+				if (n > 0)
+					vnf_memory_footprint = (uint16_t) n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "memory-footprint must be > 0\n");
+			}
+			if (!strcmp(lgopts[opt_idx].name, "nb-rnd-write")) {
+				n = atoi(optarg);
+				if (n > 0)
+					nb_rnd_write = (uint16_t) n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "nb-rnd-write must be > 0\n");
+			}
+			if (!strcmp(lgopts[opt_idx].name, "nb-rnd-read")) {
+				n = atoi(optarg);
+				if (n > 0)
+					nb_rnd_read = (uint16_t) n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "nb-rnd-read must be > 0\n");
+			}
+			if (!strcmp(lgopts[opt_idx].name, "nb-rnd-read-write")) {
+				n = atoi(optarg);
+				if (n > 0)
+					nb_rnd_read_write = (uint16_t) n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "nb-rnd-read-write must be > 0\n");
+			}
 			break;
 		case 'h':
 			usage(argv[0]);

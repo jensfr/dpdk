@@ -60,6 +60,7 @@
 #include <rte_latencystats.h>
 #endif
 
+#include "noisy_vnf.h"
 #include "testpmd.h"
 
 uint16_t verbose_level = 0; /**< Silent by default. */
@@ -154,6 +155,7 @@ struct fwd_engine * fwd_engines[] = {
 	&tx_only_engine,
 	&csum_fwd_engine,
 	&icmp_echo_engine,
+	&noisy_vnf_engine,
 #if defined RTE_LIBRTE_PMD_SOFTNIC && defined RTE_LIBRTE_SCHED
 	&softnic_tm_engine,
 	&softnic_tm_bypass_engine,
@@ -248,6 +250,40 @@ int16_t tx_free_thresh = RTE_PMD_PARAM_UNSET;
  * Configurable value of TX RS bit threshold.
  */
 int16_t tx_rs_thresh = RTE_PMD_PARAM_UNSET;
+
+/*
+ * Configurable value of buffered packed before sending.
+ */
+uint16_t bsize_before_send = 0;
+
+/*
+ * Configurable value of packet buffer timeout.
+ */
+uint16_t flush_timer = 0;
+
+/*
+ * Configurable value for size of VNF internal memory area
+ * used for simulating noisy neighbour behaviour
+ */
+uint64_t vnf_memory_footprint = 0;
+
+/*
+ * Configurable value of number of random writes done in
+ * VNF simulation memory area.
+ */
+uint64_t nb_rnd_write = 0;
+
+/*
+ * Configurable value of number of random reads done in
+ * VNF simulation memory area.
+ */
+uint64_t nb_rnd_read = 0;
+
+/*
+ * Configurable value of number of random reads/wirtes done in
+ * VNF simulation memory area.
+ */
+uint64_t nb_rnd_read_write = 0;
 
 /*
  * Receive Side Scaling (RSS) configuration.
@@ -400,6 +436,24 @@ static int all_ports_started(void);
 
 struct gso_status gso_ports[RTE_MAX_ETHPORTS];
 uint16_t gso_max_segment_size = ETHER_MAX_LEN - ETHER_CRC_LEN;
+
+#define NOISY_STRSIZE 256
+#define NOISY_RING "noisy_ring_%d:%d\n"
+struct rte_ring * noisy_init(uint32_t qi, uint32_t pi)
+{
+	struct noisy_config *n = &noisy_cfg[qi];
+	char name[NOISY_STRSIZE];
+
+	snprintf(name, NOISY_STRSIZE, NOISY_RING, pi, qi);
+	n->f = rte_ring_create(name, bsize_before_send, rte_socket_id(), 0);
+	n->vnf_mem = (char *) rte_zmalloc("vnf sim memory",
+			 vnf_memory_footprint * 1024 * 1024,
+			 RTE_CACHE_LINE_SIZE);
+	if (n->vnf_mem == NULL)
+		printf("allocating vnf memory failed\n");
+
+	return n->f;
+}
 
 /*
  * Helper function to check if socket is already discovered.
@@ -1584,6 +1638,14 @@ start_port(portid_t pid)
 				return -1;
 			}
 		}
+		noisy_cfg = (struct noisy_config *) rte_zmalloc("testpmd noisy fifo and timers",
+				nb_txq * sizeof(struct noisy_config),
+				RTE_CACHE_LINE_SIZE);
+		if (noisy_cfg == NULL) {
+			rte_exit(EXIT_FAILURE,
+					"rte_zmalloc(%d struct noisy_config) failed\n",
+					(int)(nb_txq * sizeof(struct noisy_config)));
+		}
 		if (port->need_reconfig_queues > 0) {
 			port->need_reconfig_queues = 0;
 			port->tx_conf.txq_flags = ETH_TXQ_FLAGS_IGNORE;
@@ -1591,6 +1653,9 @@ start_port(portid_t pid)
 			port->tx_conf.offloads = port->dev_conf.txmode.offloads;
 			/* setup tx queues */
 			for (qi = 0; qi < nb_txq; qi++) {
+				if (!noisy_init(qi, pi) && bsize_before_send > 0)
+					rte_exit(EXIT_FAILURE, "%s\n",
+						 rte_strerror(rte_errno));
 				if ((numa_support) &&
 					(txring_numa[pi] != NUMA_NO_CONFIG))
 					diag = rte_eth_tx_queue_setup(pi, qi,
@@ -1755,6 +1820,8 @@ stop_port(portid_t pid)
 			RTE_PORT_HANDLING, RTE_PORT_STOPPED) == 0)
 			printf("Port %d can not be set into stopped\n", pi);
 		need_check_link_status = 1;
+
+		rte_free(noisy_cfg);
 	}
 	if (need_check_link_status && !no_link_check)
 		check_all_ports_link_status(RTE_PORT_ALL);

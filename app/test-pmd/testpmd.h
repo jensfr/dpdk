@@ -9,6 +9,7 @@
 #include <rte_bus_pci.h>
 #include <rte_gro.h>
 #include <rte_gso.h>
+#include "noisy_vnf.h"
 
 #define RTE_PORT_ALL            (~(portid_t)0x0)
 
@@ -108,6 +109,14 @@ struct fwd_stream {
 	struct pkt_burst_stats tx_burst_stats;
 #endif
 };
+
+struct noisy_config {
+	struct rte_ring *f;
+	uint64_t prev_time;
+	char *vnf_mem;
+};
+struct noisy_config *noisy_cfg;
+
 
 /** Descriptor for a single flow. */
 struct port_flow {
@@ -251,6 +260,7 @@ extern struct fwd_engine rx_only_engine;
 extern struct fwd_engine tx_only_engine;
 extern struct fwd_engine csum_fwd_engine;
 extern struct fwd_engine icmp_echo_engine;
+extern struct fwd_engine noisy_vnf_engine;
 #ifdef TM_MODE
 extern struct fwd_engine softnic_tm_engine;
 extern struct fwd_engine softnic_tm_bypass_engine;
@@ -381,6 +391,13 @@ extern int16_t rx_free_thresh;
 extern int8_t rx_drop_en;
 extern int16_t tx_free_thresh;
 extern int16_t tx_rs_thresh;
+
+extern uint16_t bsize_before_send;
+extern uint16_t flush_timer;
+extern uint64_t vnf_memory_footprint;
+extern uint64_t nb_rnd_write;
+extern uint64_t nb_rnd_read;
+extern uint64_t nb_rnd_read_write;
 
 extern uint8_t dcb_config;
 extern uint8_t dcb_test;
