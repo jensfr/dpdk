@@ -561,6 +561,8 @@ rte_vhost_enable_guest_notification(int vid, uint16_t queue_id, int enable)
 
 	if (dev == NULL)
 		return -1;
+	if (dev->features & (1ULL << VIRTIO_F_RING_PACKED))
+		return -1;
 
 	if (enable) {
 		RTE_LOG(ERR, VHOST_CONFIG,
