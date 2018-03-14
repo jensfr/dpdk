@@ -64,8 +64,8 @@ vq_ring_free_chain(struct virtqueue *vq, uint16_t desc_idx)
 	vq->vq_free_cnt = (uint16_t)(vq->vq_free_cnt + dxp->ndescs);
 	if ((dp->flags & VRING_DESC_F_INDIRECT) == 0) {
 		while (dp->flags & VRING_DESC_F_NEXT) {
-			desc_idx_last = desc_idx++;
-			dp = &vq->vq_ring.desc[desc_idx];
+			desc_idx_last = dp->next;
+			dp = &vq->vq_ring.desc[dp->next];
 		}
 	}
 	dxp->ndescs = 0;
@@ -147,10 +147,10 @@ virtqueue_dequeue_burst_rx_packed(struct virtqueue *vq, struct rte_mbuf **rx_pkt
 		virtio_refill_packed(vq, used_idx, rx_queue);
 
 		rte_smp_wmb();
-		if ((vq->vq_used_cons_idx & (vq->vq_nentries - 1)) == 0)
-			toggle_wrap_counter(&vq->vq_ring);
 		set_desc_avail(&vq->vq_ring, desc);		
 		vq->vq_used_cons_idx++;
+		if ((vq->vq_used_cons_idx & (vq->vq_nentries - 1)) == 0)
+			toggle_wrap_counter(&vq->vq_ring);
 	}
 
 	return i;
