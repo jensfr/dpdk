@@ -1360,7 +1360,10 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 			eth_dev->data->port_id);
 		eth_dev->rx_pkt_burst = virtio_recv_pkts_vec;
 	} else if (vtpci_packed_queue(hw)) {
-		eth_dev->rx_pkt_burst = &virtio_recv_pkts_packed;
+		if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF))
+			eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts;
+		else
+			eth_dev->rx_pkt_burst = &virtio_recv_pkts_packed;
 	} else if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF)) {
 		PMD_INIT_LOG(INFO,
 			"virtio: using mergeable buffer Rx path on port %u",
