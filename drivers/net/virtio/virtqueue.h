@@ -171,6 +171,7 @@ struct virtqueue {
 	 * trails vq_ring.used->idx.
 	 */
 	uint16_t vq_used_cons_idx;
+	uint16_t vq_used_idx;
 	uint16_t vq_nentries;  /**< vring desc numbers */
 	uint16_t vq_free_cnt;  /**< num of desc available */
 	uint16_t vq_avail_idx; /**< sync until needed */
