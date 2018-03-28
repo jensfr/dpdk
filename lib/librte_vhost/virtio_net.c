@@ -491,14 +491,14 @@ fill_vec_buf(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	uint32_t vec_id = *vec_idx;
 	uint32_t len    = 0;
 
-	if (dev->features & (1ULL << VIRTIO_F_RING_PACKED))
+	if (vq_is_packed(dev))
 		idx = vq->last_avail_idx & (vq->size - 1);
 	else
 		idx = vq->avail->ring[avail_idx & (vq->size - 1)];
 
 	*desc_chain_head = idx;
 
-	if (dev->features & (1ULL << VIRTIO_F_RING_PACKED)) {
+	if (vq_is_packed(dev)) {
 		if (__fill_vec_buf_packed(dev, vq,
 				buf_vec, &len, &vec_id))
 			return -1;
@@ -534,14 +534,14 @@ reserve_avail_buf_mergeable(struct virtio_net *dev, struct vhost_virtqueue *vq,
 
 	while (size > 0) {
 		if (unlikely(cur_idx == avail_head) &&
-			!(dev->features & (1ull < VIRTIO_F_RING_PACKED)))
+			!vq_is_packed(dev))
 			return -1;
 
 		if (unlikely(fill_vec_buf(dev, vq, cur_idx, &vec_idx, buf_vec,
 						&head_idx, &len) < 0))
 			return -1;
 		len = RTE_MIN(len, size);
-		if (!(dev->features & (1ULL << VIRTIO_F_RING_PACKED)))
+		if (!vq_is_packed(dev))
 			update_shadow_used_ring(vq, head_idx, len);
 		size -= len;
 
@@ -719,7 +719,7 @@ virtio_dev_merge_rx(struct virtio_net *dev, uint16_t queue_id,
 
 	vq->batch_copy_nb_elems = 0;
 
-	if (dev->features & (1ULL << VIRTIO_F_RING_PACKED)) {
+	if (vq_is_packed(dev)) {
 		avail_head = vq->last_avail_idx;
 		descs = vq->desc_packed;
 	} else {
@@ -738,7 +738,7 @@ virtio_dev_merge_rx(struct virtio_net *dev, uint16_t queue_id,
 				"(%d) failed to get enough desc from vring\n",
 				dev->vid);
 
-			if (!dev->features & (1ULL & VIRTIO_F_RING_PACKED))
+			if (!vq_is_packed(dev))
 				vq->shadow_used_idx -= num_buffers;
 			break;
 		}
@@ -749,7 +749,7 @@ virtio_dev_merge_rx(struct virtio_net *dev, uint16_t queue_id,
 
 		if (copy_mbuf_to_desc_mergeable(dev, vq, pkts[pkt_idx],
 						buf_vec, num_buffers) < 0) {
-			if (!dev->features & (1ULL & VIRTIO_F_RING_PACKED))
+			if (!vq_is_packed(dev))
 				vq->shadow_used_idx -= num_buffers;
 			break;
 		}
@@ -759,7 +759,7 @@ virtio_dev_merge_rx(struct virtio_net *dev, uint16_t queue_id,
 
 	do_data_copy_enqueue(dev, vq);
 
-	if (!(dev->features & (1ULL << VIRTIO_F_RING_PACKED))) {
+	if (!vq_is_packed(dev)) {
 		if (likely(vq->shadow_used_idx)) {
 			flush_shadow_used_ring(dev, vq);
 			vhost_vring_call(dev, vq);
@@ -770,6 +770,7 @@ virtio_dev_merge_rx(struct virtio_net *dev, uint16_t queue_id,
 			if ((i & (vq->size - 1)) == 0)
 				toggle_wrap_counter(vq);
 			set_desc_used(vq, &descs[i & (vq->size - 1)]);
+			vhost_vring_call(dev, vq);
 		}
 	}
 
