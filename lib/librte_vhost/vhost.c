@@ -558,9 +558,20 @@ int
 rte_vhost_enable_guest_notification(int vid, uint16_t queue_id, int enable)
 {
 	struct virtio_net *dev = get_device(vid);
+	struct vhost_virtqueue *vq;
 
 	if (dev == NULL)
 		return -1;
+	vq = dev->virtqueue[queue_id];
+	if (!vq->enabled)
+		return 0;
+
+	if (dev->features & (1ULL << VIRTIO_F_RING_PACKED)) {
+		if (!enable) {
+			vq->driver_event->desc_event_flags |= RING_EVENT_FLAGS_DISABLE;
+		} else
+			vq->driver_event->desc_event_flags |= RING_EVENT_FLAGS_ENABLE;
+	}
 
 	if (enable) {
 		RTE_LOG(ERR, VHOST_CONFIG,

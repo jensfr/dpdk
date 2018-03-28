@@ -65,6 +65,14 @@ struct batch_copy_elem {
 	uint64_t log_addr;
 };
 
+#define RING_EVENT_FLAGS_ENABLE 0x0
+#define RING_EVENT_FLAGS_DISABLE 0x1
+#define RING_EVENT_FLAGS_DESC 0x2
+struct vring_packed_desc_event {
+        uint16_t desc_event_off_wrap;
+        uint16_t desc_event_flags;
+};
+
 /**
  * Structure contains variables relevant to RX/TX virtqueues.
  */
@@ -73,8 +81,14 @@ struct vhost_virtqueue {
 		struct vring_desc	*desc;
 		struct vring_desc_packed   *desc_packed;
 	};
-	struct vring_avail	*avail;
-	struct vring_used	*used;
+	union {
+		struct vring_avail	*avail;
+		struct vring_packed_desc_event *driver_event;
+	};
+	union {
+		struct vring_used	*used;
+		struct vring_packed_desc_event *device_event;
+	};
 	uint32_t		size;
 
 	uint16_t		last_avail_idx;
