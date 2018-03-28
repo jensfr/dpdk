@@ -69,14 +69,31 @@ struct batch_copy_elem {
 	uint64_t log_addr;
 };
 
+#define RING_EVENT_FLAGS_ENABLE 0x0
+#define RING_EVENT_FLAGS_DISABLE 0x1
+#define RING_EVENT_FLAGS_DESC 0x2
+#define RING_EVENT_FLAGS_MASK 0xFFFC
+#define RING_EVENT_WRAP_MASK 0x8000
+#define RING_EVENT_OFF_MASK 0x7FFF
+struct vring_packed_desc_event {
+	uint16_t desc_event_off_wrap;
+	uint16_t desc_event_flags;
+};
+
 /**
  * Structure contains variables relevant to RX/TX virtqueues.
  */
 struct vhost_virtqueue {
 	struct vring_desc	*desc;
 	struct vring_desc_packed   *desc_packed;
-	struct vring_avail	*avail;
-	struct vring_used	*used;
+	union {
+		struct vring_avail	*avail;
+		struct vring_packed_desc_event *driver_event;
+	};
+	union {
+		struct vring_used	*used;
+		struct vring_packed_desc_event *device_event;
+	};
 	uint32_t		size;
 
 	uint16_t		last_avail_idx;
@@ -209,7 +226,6 @@ struct vhost_msg {
 				(1ULL << VIRTIO_RING_F_EVENT_IDX) | \
 				(1ULL << VIRTIO_NET_F_MTU) | \
 				(1ULL << VIRTIO_F_IOMMU_PLATFORM))
-
 
 struct guest_page {
 	uint64_t guest_phys_addr;
@@ -475,6 +491,11 @@ vhost_need_event(uint16_t event_idx, uint16_t new_idx, uint16_t old)
 static __rte_always_inline void
 vhost_vring_call(struct virtio_net *dev, struct vhost_virtqueue *vq)
 {
+	uint16_t off_wrap, wrap = 0;
+	uint16_t event_flags;
+	uint16_t event_idx = 0;
+	int do_kick = 0;
+
 	/* Flush used->idx update before we read avail->flags. */
 	rte_mb();
 
@@ -482,22 +503,44 @@ vhost_vring_call(struct virtio_net *dev, struct vhost_virtqueue *vq)
 	if (dev->features & (1ULL << VIRTIO_RING_F_EVENT_IDX)) {
 		uint16_t old = vq->signalled_used;
 		uint16_t new = vq->last_used_idx;
+		if (dev->features & (1ULL << VIRTIO_F_RING_PACKED)) {
+			event_flags = vq->driver_event->desc_event_flags &
+					RING_EVENT_FLAGS_MASK;
+			if (!(event_flags & RING_EVENT_FLAGS_DESC))
+				do_kick = event_flags & RING_EVENT_FLAGS_ENABLE ? 1 : 0;
+			else {
+				off_wrap = vq->driver_event->desc_event_off_wrap;
+				wrap = off_wrap & RING_EVENT_WRAP_MASK;
+				event_idx = off_wrap & RING_EVENT_OFF_MASK;
+			}
+			if (vhost_need_event(event_idx, new, old) &&
+					(vq->callfd >= 0) &&
+					(wrap == vq->used_wrap_counter)) {
+				vq->signalled_used = vq->last_used_idx;
+				do_kick = 1;
+			}
+		} else {
+			event_idx = vhost_used_event(vq);
+			if (vhost_need_event(event_idx, new, old)
+				&& (vq->callfd >= 0)) {
+				vq->signalled_used = vq->last_used_idx;
+				do_kick = 1;
+			}
+		}
 
 		VHOST_LOG_DEBUG(VHOST_DATA, "%s: used_event_idx=%d, old=%d, new=%d\n",
 			__func__,
-			vhost_used_event(vq),
+			event_idx,
 			old, new);
-		if (vhost_need_event(vhost_used_event(vq), new, old)
-			&& (vq->callfd >= 0)) {
-			vq->signalled_used = vq->last_used_idx;
-			eventfd_write(vq->callfd, (eventfd_t) 1);
-		}
 	} else {
 		/* Kick the guest if necessary. */
 		if (!(vq->avail->flags & VRING_AVAIL_F_NO_INTERRUPT)
 				&& (vq->callfd >= 0))
-			eventfd_write(vq->callfd, (eventfd_t)1);
+			do_kick = 1;
 	}
+
+	if (do_kick)
+		eventfd_write(vq->callfd, (eventfd_t)1);
 }
 
 #endif /* _VHOST_NET_CDEV_H_ */
