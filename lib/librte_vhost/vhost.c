@@ -23,6 +23,7 @@
 #include "iotlb.h"
 #include "vhost.h"
 #include "vhost_user.h"
+#include "virtio-packed.h"
 
 struct virtio_net *vhost_devices[MAX_VHOST_DEVICE];
 
@@ -577,9 +578,23 @@ int
 rte_vhost_enable_guest_notification(int vid, uint16_t queue_id, int enable)
 {
 	struct virtio_net *dev = get_device(vid);
+	struct vhost_virtqueue *vq;
 
 	if (dev == NULL)
 		return -1;
+
+	vq = dev->virtqueue[queue_id];
+	if (!vq->enabled)
+		return 0;
+
+	if (vq_is_packed(dev)) {
+		if (!enable) {
+			vq->driver_event->desc_event_flags |=
+				RING_EVENT_FLAGS_DISABLE;
+		} else
+			vq->driver_event->desc_event_flags |=
+				RING_EVENT_FLAGS_ENABLE;
+	}
 
 	if (enable) {
 		RTE_LOG(ERR, VHOST_CONFIG,
@@ -587,7 +602,8 @@ rte_vhost_enable_guest_notification(int vid, uint16_t queue_id, int enable)
 		return -1;
 	}
 
-	dev->virtqueue[queue_id]->used->flags = VRING_USED_F_NO_NOTIFY;
+	if (!vq_is_packed(dev))
+		dev->virtqueue[queue_id]->used->flags = VRING_USED_F_NO_NOTIFY;
 	return 0;
 }
 
