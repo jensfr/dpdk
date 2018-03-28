@@ -39,6 +39,7 @@
 #include "iotlb.h"
 #include "vhost.h"
 #include "vhost_user.h"
+#include "virtio-packed.h"
 
 #define VIRTIO_MIN_MTU 68
 #define VIRTIO_MAX_MTU 65535
@@ -477,6 +478,28 @@ translate_ring_addresses(struct virtio_net *dev, int vq_index)
 		vq->avail = NULL;
 		vq->used = NULL;
 		vq->log_guest_addr = 0;
+		vq->driver_event = (struct vring_packed_desc_event *)
+					(uintptr_t)ring_addr_to_vva(dev,
+					vq, addr->avail_user_addr,
+					sizeof(struct vring_packed_desc_event));
+		if (vq->driver_event == 0) {
+			RTE_LOG(DEBUG, VHOST_CONFIG,
+				"(%d) failed to find driver area address.\n",
+				dev->vid);
+			return dev;
+		}
+
+		vq->device_event = (struct vring_packed_desc_event *)
+					(uintptr_t)ring_addr_to_vva(dev,
+					vq, addr->used_user_addr,
+					sizeof(struct vring_packed_desc_event));
+		if (vq->device_event == 0) {
+			RTE_LOG(DEBUG, VHOST_CONFIG,
+				"(%d) failed to find device area address.\n",
+				dev->vid);
+			return dev;
+		}
+
 
 		if (vq->last_used_idx != 0) {
 			RTE_LOG(WARNING, VHOST_CONFIG,
