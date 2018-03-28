@@ -771,6 +771,7 @@ virtio_dev_merge_rx(struct virtio_net *dev, uint16_t queue_id,
 			vq->last_avail_idx = update_index(vq, vq->last_avail_idx,
 						vq->size);
 			set_desc_used(vq, &descs[i]);
+			vhost_vring_call(dev, vq);
 		}
 	}
 
