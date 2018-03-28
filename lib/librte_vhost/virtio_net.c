@@ -770,6 +770,7 @@ virtio_dev_merge_rx(struct virtio_net *dev, uint16_t queue_id,
 			if ((i & (vq->size - 1)) == 0)
 				toggle_wrap_counter(vq);
 			set_desc_used(vq, &descs[i & (vq->size - 1)]);
+			vhost_vring_call(dev, vq);
 		}
 	}
 
