@@ -176,6 +176,8 @@ struct virtqueue {
 	uint16_t vq_free_cnt;  /**< num of desc available */
 	uint16_t vq_avail_idx; /**< sync until needed */
 	uint16_t vq_free_thresh; /**< free threshold */
+	uint16_t vq_signalled_avail;
+	int vq_signalled_avail_valid;
 
 	void *vq_ring_virt_mem;  /**< linear address of vring*/
 	unsigned int vq_ring_size;
@@ -273,16 +275,34 @@ vring_desc_init(struct vring_desc *dp, uint16_t n)
 static inline void
 virtqueue_disable_intr(struct virtqueue *vq)
 {
-	vq->vq_ring.avail->flags |= VRING_AVAIL_F_NO_INTERRUPT;
+	if (vtpci_packed_queue(vq->hw) && vtpci_with_feature(vq->hw,
+				VIRTIO_RING_F_EVENT_IDX))
+		vq->vq_ring.device_event->desc_event_flags = RING_EVENT_FLAGS_DISABLE;
+	else
+		vq->vq_ring.avail->flags |= VRING_AVAIL_F_NO_INTERRUPT;
 }
 
 /**
  * Tell the backend to interrupt us.
  */
 static inline void
-virtqueue_enable_intr(struct virtqueue *vq)
+virtqueue_enable_intr(struct virtqueue *vq, uint16_t off, uint16_t wrap_counter)
 {
-	vq->vq_ring.avail->flags &= (~VRING_AVAIL_F_NO_INTERRUPT);
+	uint16_t *flags = &vq->vq_ring.device_event->desc_event_flags;
+	uint16_t *event_off_wrap = &vq->vq_ring.device_event->desc_event_off_wrap;
+	if (vtpci_packed_queue(vq->hw)) {
+		*flags = 0;
+		*event_off_wrap = 0;
+		if (*event_off_wrap & RING_EVENT_FLAGS_DESC) {
+			*event_off_wrap = off | 0x7FFF;
+			*event_off_wrap |= wrap_counter << 15;
+			*flags |= RING_EVENT_FLAGS_DESC;
+		} else
+			*event_off_wrap = 0;
+		*flags |= RING_EVENT_FLAGS_ENABLE;
+	} else {
+		vq->vq_ring.avail->flags &= (~VRING_AVAIL_F_NO_INTERRUPT);
+	}
 }
 
 /**
@@ -342,10 +362,57 @@ vq_update_avail_ring(struct virtqueue *vq, uint16_t desc_idx)
 	vq->vq_avail_idx++;
 }
 
+static int vhost_idx_diff(struct virtqueue *vq, uint16_t old, uint16_t new)
+{
+	if (new > old)
+		return new - old;
+	return  (new + vq->vq_nentries - old);
+}
+
+static int vring_packed_need_event(struct virtqueue *vq,
+		uint16_t event_off, uint16_t new,
+		uint16_t old)
+{
+	return (uint16_t)(vhost_idx_diff(vq, new, event_off) - 1) <
+		(uint16_t)vhost_idx_diff(vq, new, old);
+}
+
+
 static inline int
 virtqueue_kick_prepare(struct virtqueue *vq)
 {
 	return !(vq->vq_ring.used->flags & VRING_USED_F_NO_NOTIFY);
+}
+
+static inline int
+virtqueue_kick_prepare_packed(struct virtqueue *vq)
+{
+	uint16_t notify_offset, flags, wrap;
+	uint16_t old, new;
+	int v;
+
+	if (vtpci_packed_queue(vq->hw)) {
+		flags = vq->vq_ring.device_event->desc_event_flags;
+		if (!(flags & RING_EVENT_FLAGS_DESC))
+			return flags & RING_EVENT_FLAGS_ENABLE;
+		virtio_rmb();
+		notify_offset = vq->vq_ring.device_event->desc_event_off_wrap;
+		wrap = notify_offset & 0x1;
+		notify_offset >>= 1;
+
+		old = vq->vq_signalled_avail;
+		v = vq->vq_signalled_avail_valid;
+		new = vq->vq_signalled_avail = vq->vq_avail_idx;
+		vq->vq_signalled_avail_valid = 1;
+
+		if (unlikely(!v))
+			return 0;
+
+		return (vring_packed_need_event(vq, new, old, notify_offset) &&
+			wrap == vq->vq_ring.avail_wrap_counter);
+	} else {
+		return !(vq->vq_ring.used->flags & VRING_USED_F_NO_NOTIFY);
+	}
 }
 
 static inline void
