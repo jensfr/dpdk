@@ -184,6 +184,11 @@ vring_init(struct virtio_hw *hw, struct vring *vr, unsigned int num, uint8_t *p,
 	vr->num = num;
 	if (vtpci_packed_queue(hw)) {
 		vr->desc_packed = (struct vring_desc_packed *)p;
+		vr->driver_event = (struct vring_packed_desc_event *)
+					(p + num * sizeof(struct vring_desc_packed));
+		vr->device_event = (struct vring_packed_desc_event *)
+					(p + (num * sizeof(struct vring_desc_packed)) +
+					sizeof(struct vring_packed_desc_event));
 		return;
 	}
 

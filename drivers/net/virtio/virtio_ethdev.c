@@ -803,7 +803,7 @@ virtio_dev_rx_queue_intr_enable(struct rte_eth_dev *dev, uint16_t queue_id)
 	struct virtnet_rx *rxvq = dev->data->rx_queues[queue_id];
 	struct virtqueue *vq = rxvq->vq;
 
-	virtqueue_enable_intr(vq);
+	virtqueue_enable_intr(vq, 0, 0);
 	return 0;
 }
 
@@ -813,8 +813,7 @@ virtio_dev_rx_queue_intr_disable(struct rte_eth_dev *dev, uint16_t queue_id)
 	struct virtnet_rx *rxvq = dev->data->rx_queues[queue_id];
 	struct virtqueue *vq = rxvq->vq;
 
-	if (!vtpci_packed_queue(vq->hw))
-		virtqueue_disable_intr(vq);
+	virtqueue_disable_intr(vq);
 	return 0;
 }
 
