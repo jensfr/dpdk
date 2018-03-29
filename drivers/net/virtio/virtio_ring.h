@@ -74,6 +74,10 @@ struct vring_desc_packed {
 #define RING_EVENT_FLAGS_ENABLE 0x0
 #define RING_EVENT_FLAGS_DISABLE 0x1
 #define RING_EVENT_FLAGS_DESC 0x2
+#define RING_EVENT_FLAGS_MASK 0xFFFC
+#define RING_EVENT_WRAP_MASK 0x8000
+#define RING_EVENT_OFF_MASK 0x7FFF
+
 struct vring_packed_desc_event {
 	uint16_t desc_event_off_wrap;
 	uint16_t desc_event_flags;
