@@ -137,6 +137,10 @@ virtio_xmit_pkts_packed(void *tx_queue, struct rte_mbuf **tx_pkts,
 
 		vq->vq_descx[head_idx].ndescs = descs_used;
 		idx = update_pq_avail_index(vq);
+		if (unlikely(virtqueue_kick_prepare_packed(vq))) {
+			virtqueue_notify(vq);
+			PMD_RX_LOG(DEBUG, "Notified");
+		}
 	}
 
 	txvq->stats.packets += i;
@@ -1193,6 +1197,10 @@ virtio_recv_pkts_packed(void *rx_queue, struct rte_mbuf **rx_pkts,
 	}
 
 	rxvq->stats.packets += nb_rx;
+	if (nb_rx > 0 && unlikely(virtqueue_kick_prepare_packed(vq))) {
+		virtqueue_notify(vq);
+		PMD_RX_LOG(DEBUG, "Notified");
+	}
 
 	return nb_rx;
 }
@@ -1648,8 +1656,13 @@ virtio_recv_mergeable_pkts(void *rx_queue,
 
 	rxvq->stats.packets += nb_rx;
 
-	if (vtpci_packed_queue(vq->hw))
+	if (vtpci_packed_queue(vq->hw)) {
+		if (unlikely(virtqueue_kick_prepare(vq))) {
+			virtqueue_notify(vq);
+			PMD_RX_LOG(DEBUG, "Notified");
+		}
 		return nb_rx;
+	}
 
 	/* Allocate new mbuf for the used descriptor */
 	while (likely(!virtqueue_full(vq))) {
