@@ -132,6 +132,10 @@ virtio_xmit_pkts_packed(void *tx_queue, struct rte_mbuf **tx_pkts,
 
 		rte_smp_wmb();
 		_set_desc_avail(&desc[head_idx], wrap_counter);
+		if (unlikely(virtqueue_kick_prepare_packed(vq))) {
+				virtqueue_notify(vq);
+				PMD_RX_LOG(DEBUG, "Notified");
+		}
 	}
 
 	txvq->stats.packets += i;
@@ -996,6 +1000,10 @@ virtio_recv_pkts_packed(void *rx_queue, struct rte_mbuf **rx_pkts,
 	}
 
 	rxvq->stats.packets += nb_rx;
+	if (nb_rx > 0 && unlikely(virtqueue_kick_prepare_packed(vq))) {
+		virtqueue_notify(vq);
+		PMD_RX_LOG(DEBUG, "Notified");
+	}
 
 	vq->vq_used_cons_idx = used_idx;
 
