@@ -23,6 +23,21 @@ toggle_wrap_counter(struct vhost_virtqueue *vq)
 	vq->used_wrap_counter ^= 1;
 }
 
+static inline uint16_t
+increase_index (uint16_t index, uint32_t size)
+{	
+	return ++index >= size ? 0 : index;
+}
+
+static inline uint16_t
+update_index (struct vhost_virtqueue *vq, uint16_t index, uint32_t size) {
+	index = increase_index(index, size);
+	if (increase_index(index, size) == 0)
+		toggle_wrap_counter(vq);
+	return index;
+}
+
+
 static inline int
 desc_is_avail(struct vhost_virtqueue *vq, struct vring_desc_packed *desc)
 {

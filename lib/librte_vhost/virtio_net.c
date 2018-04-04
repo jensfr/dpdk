@@ -405,7 +405,7 @@ __fill_vec_buf_packed(struct virtio_net *dev, struct vhost_virtqueue *vq,
 			 struct buf_vector *buf_vec,
 			 uint32_t *len, uint32_t *vec_id)
 {
-	uint16_t idx = vq->last_avail_idx & (vq->size - 1);
+	uint16_t idx = vq->last_avail_idx;
 	struct vring_desc_packed *descs= vq->desc_packed;
 	uint32_t _vec_id = *vec_id;
 
@@ -424,16 +424,16 @@ __fill_vec_buf_packed(struct virtio_net *dev, struct vhost_virtqueue *vq,
 		if (unlikely(_vec_id >= BUF_VECTOR_MAX || idx >= vq->size))
 			return -1;
 
-		*len += descs[idx & (vq->size - 1)].len;
+		*len += descs[idx].len;
 		buf_vec[_vec_id].buf_addr = descs[idx].addr;
 		buf_vec[_vec_id].buf_len  = descs[idx].len;
 		buf_vec[_vec_id].desc_idx = idx;
 		_vec_id++;
 
-		if ((descs[idx & (vq->size - 1)].flags & VRING_DESC_F_NEXT) == 0)
+		if ((descs[idx].flags & VRING_DESC_F_NEXT) == 0)
 			break;
 
-		idx++;
+		idx = increase_index(idx, vq->size);
 	}
 	*vec_id = _vec_id;
 
@@ -491,7 +491,7 @@ fill_vec_buf(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	uint32_t len    = 0;
 
 	if (dev->features & (1ULL << VIRTIO_F_RING_PACKED)) {
-		idx = vq->last_avail_idx & (vq->size -1);
+		idx = vq->last_avail_idx;
 	} else {
 		idx = vq->avail->ring[avail_idx & (vq->size - 1)];
 	}
@@ -754,7 +754,7 @@ virtio_dev_merge_rx(struct virtio_net *dev, uint16_t queue_id,
 			break;
 		}
 
-		vq->last_avail_idx += num_buffers;
+		//vq->last_avail_idx += num_buffers;
 	}
 
 	do_data_copy_enqueue(dev, vq);
@@ -766,10 +766,11 @@ virtio_dev_merge_rx(struct virtio_net *dev, uint16_t queue_id,
 		}
 	} else {
 		rte_smp_wmb();
-		for (i = avail_head; i < vq->last_avail_idx; i++) {
-			if ((i & (vq->size - 1)) == 0)
-				toggle_wrap_counter(vq);
-			set_desc_used(vq, &descs[i & (vq->size - 1)]);
+		for (i = avail_head; i < (vq->last_avail_idx + num_buffers);
+		     i = increase_index(i, vq->size)) {
+			vq->last_avail_idx = update_index(vq, vq->last_avail_idx,
+						vq->size);
+			set_desc_used(vq, &descs[i]);
 		}
 	}
 
