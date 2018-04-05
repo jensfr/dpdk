@@ -1154,6 +1154,8 @@ virtio_negotiate_features(struct virtio_hw *hw, uint64_t req_features)
 	}
 
 #ifdef RTE_LIBRTE_VIRTIO_PQ
+//FIXME
+	req_features |= (1ull << VIRTIO_F_RING_PACKED);
 	if (req_features & (1ULL << VIRTIO_F_RING_PACKED)) {
 		req_features &= ~(1ull << VIRTIO_NET_F_CTRL_MAC_ADDR);
 		req_features &= ~(1ull << VIRTIO_NET_F_CTRL_VQ);
@@ -1320,11 +1322,7 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 {
 	struct virtio_hw *hw = eth_dev->data->dev_private;
 
-	if (hw->use_simple_rx) {
-		PMD_INIT_LOG(INFO, "virtio: using simple Rx path on port %u",
-			eth_dev->data->port_id);
-		eth_dev->rx_pkt_burst = virtio_recv_pkts_vec;
-	} else if (vtpci_packed_queue(hw)) {
+	if (vtpci_packed_queue(hw)) {
 		if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF))
 			eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts;
 		else
@@ -1334,6 +1332,10 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 			"virtio: using mergeable buffer Rx path on port %u",
 			eth_dev->data->port_id);
 		eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts;
+	} else if (hw->use_simple_rx) {
+		PMD_INIT_LOG(INFO, "virtio: using simple Rx path on port %u",
+			eth_dev->data->port_id);
+		eth_dev->rx_pkt_burst = virtio_recv_pkts_vec;
 	} else {
 		PMD_INIT_LOG(INFO, "virtio: using standard Rx path on port %u",
 			eth_dev->data->port_id);
