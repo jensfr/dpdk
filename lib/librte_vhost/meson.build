@@ -12,4 +12,4 @@ allow_experimental_apis = true
 sources = files('fd_man.c', 'iotlb.c', 'socket.c', 'vhost.c', 'vhost_user.c',
 		'virtio_net.c', 'virtio_crypto.c')
 headers = files('rte_vhost.h', 'rte_vhost_crypto.h')
-deps += ['ethdev', 'cryptodev']
+deps += ['ethdev', 'cryptodev', 'pci']
