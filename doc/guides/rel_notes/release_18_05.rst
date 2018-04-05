@@ -58,6 +58,11 @@ New Features
   * Added support for NVGRE, VXLAN and GENEVE filters in flow API.
   * Added support for DROP action in flow API.
 
+* **Added crypto workload support to vhost library.**
+
+  New APIs are introduced in vhost library to enable virtio crypto support
+  including session creation/deletion handling and translating virito-crypto
+  request into DPDK crypto operations. A sample application is also introduced.
 
 API Changes
 -----------
