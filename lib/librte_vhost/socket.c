@@ -672,6 +672,7 @@ rte_vhost_driver_register(const char *path, uint64_t flags)
 
 #ifndef RTE_LIBRTE_VHOST_PQ
 		vsocket->features &= ~(1ULL << VIRTIO_F_RING_PACKED);
+		vsocket->features &= ~(1ULL << VIRTIO_RING_F_INDIRECT_DESC);
 #endif
 
 	if ((flags & RTE_VHOST_USER_CLIENT) != 0) {
