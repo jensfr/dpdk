@@ -1153,6 +1153,10 @@ virtio_negotiate_features(struct virtio_hw *hw, uint64_t req_features)
 			req_features &= ~(1ULL << VIRTIO_NET_F_MTU);
 	}
 
+#ifndef RTE_LIBRTE_VIRTIO_PQ
+	req_features &= ~(1ull << VIRTIO_F_RING_PACKED);
+#endif
+
 	if (req_features & (1ULL << VIRTIO_F_RING_PACKED)) {
 		req_features &= ~(1ull << VIRTIO_NET_F_CTRL_MAC_ADDR);
 		req_features &= ~(1ull << VIRTIO_NET_F_CTRL_VQ);
