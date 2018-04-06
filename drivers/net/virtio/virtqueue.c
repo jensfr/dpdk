@@ -65,6 +65,28 @@ virtqueue_rxvq_flush(struct virtqueue *vq)
 	uint16_t used_idx, desc_idx;
 	uint16_t nb_used, i;
 
+	if (vtpci_packed_queue(vq->hw)) {
+		struct vring_packed_desc *descs = vq->ring_packed.desc_packed;
+		int cnt = 0;
+
+		i = vq->vq_used_cons_idx;
+		while (desc_is_used(&descs[i], vq) && cnt++ < vq->vq_nentries) {
+			dxp = &vq->vq_descx[descs[i].id];
+			if (dxp->cookie != NULL) {
+				rte_pktmbuf_free(dxp->cookie);
+				dxp->cookie = NULL;
+			}
+			vq->vq_free_cnt++;
+			vq->vq_used_cons_idx++;
+			if (vq->vq_used_cons_idx >= vq->vq_nentries) {
+				vq->vq_used_cons_idx -= vq->vq_nentries;
+				vq->used_wrap_counter ^= 1;
+			}
+			i = vq->vq_used_cons_idx;
+		}
+		return;
+	}
+
 	nb_used = VIRTQUEUE_NUSED(vq);
 
 	for (i = 0; i < nb_used; i++) {

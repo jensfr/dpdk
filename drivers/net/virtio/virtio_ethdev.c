@@ -1359,27 +1359,39 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 		}
 	}
 
-	if (hw->use_simple_rx) {
-		PMD_INIT_LOG(INFO, "virtio: using simple Rx path on port %u",
-			eth_dev->data->port_id);
-		eth_dev->rx_pkt_burst = virtio_recv_pkts_vec;
-	} else if (hw->use_inorder_rx) {
-		PMD_INIT_LOG(INFO,
-			"virtio: using inorder mergeable buffer Rx path on port %u",
-			eth_dev->data->port_id);
-		eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts_inorder;
-	} else if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF)) {
-		PMD_INIT_LOG(INFO,
-			"virtio: using mergeable buffer Rx path on port %u",
-			eth_dev->data->port_id);
-		eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts;
-	} else {
-		PMD_INIT_LOG(INFO, "virtio: using standard Rx path on port %u",
-			eth_dev->data->port_id);
-		eth_dev->rx_pkt_burst = &virtio_recv_pkts;
+	if (vtpci_packed_queue(hw)) {
+		if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF)) {
+			PMD_INIT_LOG(INFO,
+				"virtio: using packed ring mergeable buffer Rx path on port %u",
+				eth_dev->data->port_id);
+			eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts_packed;
+		} else {
+			PMD_INIT_LOG(INFO,
+				"virtio: using packed ring standard Rx path on port %u",
+				eth_dev->data->port_id);
+			eth_dev->rx_pkt_burst = &virtio_recv_pkts_packed;
+		}
+	} else { 
+		if (hw->use_simple_rx) {
+			PMD_INIT_LOG(INFO, "virtio: using simple Rx path on port %u",
+				eth_dev->data->port_id);
+			eth_dev->rx_pkt_burst = virtio_recv_pkts_vec;
+		} else if (hw->use_inorder_rx) {
+			PMD_INIT_LOG(INFO,
+				"virtio: using inorder mergeable buffer Rx path on port %u",
+				eth_dev->data->port_id);
+			eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts_inorder;
+		} else if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF)) {
+			PMD_INIT_LOG(INFO,
+				"virtio: using mergeable buffer Rx path on port %u",
+				eth_dev->data->port_id);
+			eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts;
+		} else {
+			PMD_INIT_LOG(INFO, "virtio: using standard Rx path on port %u",
+				eth_dev->data->port_id);
+			eth_dev->rx_pkt_burst = &virtio_recv_pkts;
+		}
 	}
-
-
 }
 
 /* Only support 1:1 queue/interrupt mapping so far.
@@ -1511,7 +1523,8 @@ virtio_init_device(struct rte_eth_dev *eth_dev, uint64_t req_features)
 
 	/* Setting up rx_header size for the device */
 	if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF) ||
-	    vtpci_with_feature(hw, VIRTIO_F_VERSION_1))
+	    vtpci_with_feature(hw, VIRTIO_F_VERSION_1) ||
+	    vtpci_with_feature(hw, VIRTIO_F_RING_PACKED))
 		hw->vtnet_hdr_size = sizeof(struct virtio_net_hdr_mrg_rxbuf);
 	else
 		hw->vtnet_hdr_size = sizeof(struct virtio_net_hdr);
@@ -1937,6 +1950,12 @@ virtio_dev_configure(struct rte_eth_dev *dev)
 		} else {
 			hw->use_inorder_rx = 0;
 		}
+	}
+
+	if (vtpci_packed_queue(hw)) {
+		hw->use_simple_rx = 0;
+		hw->use_inorder_rx = 0;
+		hw->use_inorder_tx = 0;
 	}
 
 #if defined RTE_ARCH_ARM64 || defined RTE_ARCH_ARM
