@@ -19,4 +19,68 @@ struct vring_desc_packed {
 	uint16_t flags;
 };
 
+static inline uint64_t
+vq_is_packed(struct virtio_net *dev)
+{
+	return dev->features & (1ull << VIRTIO_F_RING_PACKED);
+}
+
+static inline void
+toggle_wrap_counter(struct vhost_virtqueue *vq)
+{
+	vq->used_wrap_counter ^= 1;
+}
+
+static inline uint16_t
+increase_index (uint16_t index, uint32_t size)
+{
+	return ++index >= size ? 0 : index;
+}
+
+static inline uint16_t
+update_index (struct vhost_virtqueue *vq, uint16_t index, uint32_t size) {
+	index = increase_index(index, size);
+	if (increase_index(index, size) == 0)
+		toggle_wrap_counter(vq);
+	return index;
+}
+
+static inline int
+desc_is_avail(struct vhost_virtqueue *vq, struct vring_desc_packed *desc)
+{
+	if (vq->used_wrap_counter == 1) {
+		if ((desc->flags & VRING_DESC_F_AVAIL) &&
+				!(desc->flags & VRING_DESC_F_USED))
+			return 1;
+	}
+	if (vq->used_wrap_counter == 0) {
+		if (!(desc->flags & VRING_DESC_F_AVAIL) &&
+				(desc->flags & VRING_DESC_F_USED))
+			return 1;
+	}
+	return 0;
+}
+
+static inline void
+_set_desc_used(struct vring_desc_packed *desc, int wrap_counter)
+{
+	uint16_t flags = desc->flags;
+
+	if (wrap_counter == 1) {
+		flags |= VRING_DESC_F_USED;
+		flags |= VRING_DESC_F_AVAIL;
+	} else {
+		flags &= ~VRING_DESC_F_USED;
+		flags &= ~VRING_DESC_F_AVAIL;
+	}
+
+	desc->flags = flags;
+}
+
+static inline void
+set_desc_used(struct vhost_virtqueue *vq, struct vring_desc_packed *desc)
+{
+	_set_desc_used(desc, vq->used_wrap_counter);
+}
+
 #endif /* __VIRTIO_PACKED_H */
