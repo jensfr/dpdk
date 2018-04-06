@@ -58,12 +58,28 @@ virtqueue_detach_unused(struct virtqueue *vq)
 void
 virtqueue_rxvq_flush(struct virtqueue *vq)
 {
+	struct vring_desc_packed *descs = vq->vq_ring.desc_packed;
 	struct virtnet_rx *rxq = &vq->rxq;
 	struct virtio_hw *hw = vq->hw;
 	struct vring_used_elem *uep;
 	struct vq_desc_extra *dxp;
 	uint16_t used_idx, desc_idx;
 	uint16_t nb_used, i;
+	uint16_t size = vq->vq_nentries;
+
+	if (vtpci_packed_queue(vq->hw)) {
+		i = vq->vq_used_cons_idx;
+		while (desc_is_used(&descs[i])) {
+			dxp = &vq->vq_descx[i];
+			if (dxp->cookie != NULL)
+				rte_pktmbuf_free(dxp->cookie);
+			vq->vq_free_cnt += dxp->ndescs;
+			i = i + dxp->ndescs;
+			i = i >= size ? i - size : i;
+			dxp->ndescs = 0;
+		}
+		return;
+	}
 
 	nb_used = VIRTQUEUE_NUSED(vq);
 
