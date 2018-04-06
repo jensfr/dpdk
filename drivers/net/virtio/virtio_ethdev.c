@@ -384,8 +384,10 @@ virtio_init_queue(struct rte_eth_dev *dev, uint16_t vtpci_queue_idx)
 	vq->hw = hw;
 	vq->vq_queue_index = vtpci_queue_idx;
 	vq->vq_nentries = vq_size;
-	if (vtpci_packed_queue(hw))
+	if (vtpci_packed_queue(hw)) {
 		vq->vq_ring.avail_wrap_counter = 1;
+		vq->vq_ring.used_wrap_counter = 1;
+	}
 
 	/*
 	 * Reserve a memzone for vring elements
@@ -1326,7 +1328,13 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 {
 	struct virtio_hw *hw = eth_dev->data->dev_private;
 
-	if (hw->use_simple_rx) {
+	if (vtpci_packed_queue(hw)) {
+		if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF)) {
+			eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts;
+		} else {
+		eth_dev->rx_pkt_burst = &virtio_recv_pkts_packed;
+		}
+	} else if (hw->use_simple_rx) {
 		PMD_INIT_LOG(INFO, "virtio: using simple Rx path on port %u",
 			eth_dev->data->port_id);
 		eth_dev->rx_pkt_burst = virtio_recv_pkts_vec;
@@ -1493,7 +1501,8 @@ virtio_init_device(struct rte_eth_dev *eth_dev, uint64_t req_features)
 
 	/* Setting up rx_header size for the device */
 	if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF) ||
-	    vtpci_with_feature(hw, VIRTIO_F_VERSION_1))
+	    vtpci_with_feature(hw, VIRTIO_F_VERSION_1) ||
+	    vtpci_with_feature(hw, VIRTIO_F_RING_PACKED))
 		hw->vtnet_hdr_size = sizeof(struct virtio_net_hdr_mrg_rxbuf);
 	else
 		hw->vtnet_hdr_size = sizeof(struct virtio_net_hdr);
@@ -1921,7 +1930,8 @@ virtio_dev_configure(struct rte_eth_dev *dev)
 
 	rte_spinlock_init(&hw->state_lock);
 
-	hw->use_simple_rx = 1;
+	if (!vtpci_packed_queue(hw))
+		hw->use_simple_rx = 1;
 
 	if (vtpci_with_feature(hw, VIRTIO_F_IN_ORDER)) {
 		hw->use_inorder_tx = 1;
