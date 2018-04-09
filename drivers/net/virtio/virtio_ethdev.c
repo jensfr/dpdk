@@ -1329,10 +1329,6 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 {
 	struct virtio_hw *hw = eth_dev->data->dev_private;
 
-	/*
-	 * workarount for packed vqs which don't support
-	 * mrg_rxbuf at this point
-	 */
 	if (vtpci_packed_queue(hw)) {
 		eth_dev->rx_pkt_burst = &virtio_recv_pkts_packed;
 	} else if (hw->use_simple_rx) {
