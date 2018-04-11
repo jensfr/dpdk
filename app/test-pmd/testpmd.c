@@ -262,6 +262,30 @@ uint16_t bsize_before_send = 0;
  * Configurable value of packet buffer timeout.
  */
 uint16_t flush_timer = 0;
+
+/*
+ * Configurable value for size of VNF internal memory area
+ * used for simulating noisy neighbour behaviour
+ */
+uint64_t vnf_memory_footprint = 0;
+
+/*
+ * Configurable value of number of random writes done in
+ * VNF simulation memory area.
+ */
+uint64_t nb_rnd_write = 0;
+
+/*
+ * Configurable value of number of random reads done in
+ * VNF simulation memory area.
+ */
+uint64_t nb_rnd_read = 0;
+
+/*
+ * Configurable value of number of random reads/wirtes done in
+ * VNF simulation memory area.
+ */
+uint64_t nb_rnd_read_write = 0;
 #endif
 
 /*
@@ -426,6 +450,12 @@ struct rte_ring * fifo_init(uint32_t qi, uint32_t pi)
 
 	snprintf(name, STRSIZE, NOISY_RING, pi, qi);
 	n->f = rte_ring_create(name, bsize_before_send, rte_socket_id(), 0);
+	n->vnf_mem = (char *) rte_zmalloc("vnf sim memory",
+			 vnf_memory_footprint * 1024 * 1024,
+			 RTE_CACHE_LINE_SIZE);
+	if (n->vnf_mem == NULL)
+		printf("allocating vnf memory failed\n");
+
 	return n->f;
 }
 #endif

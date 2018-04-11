@@ -623,6 +623,10 @@ launch_args_parse(int argc, char** argv)
 		{ "tx-offloads",		1, 0, 0 },
 		{ "buffersize-before-sending",  1, 0, 0 },
 		{ "flush-timer",                1, 0, 0 },
+		{ "memory-footprint",           1, 0, 0 },
+		{ "nb-rnd-write",               1, 0, 0 },
+		{ "nb-rnd-read",                1, 0, 0 },
+		{ "nb-rnd-read-write",          1, 0, 0 },
 		{ 0, 0, 0, 0 },
 	};
 
@@ -1119,6 +1123,38 @@ launch_args_parse(int argc, char** argv)
 				else
 					rte_exit(EXIT_FAILURE,
 						 "flush-timer must be > 0\n");
+			}
+			if (!strcmp(lgopts[opt_idx].name, "memory-footprint")) {
+				n = atoi(optarg);
+				if (n > 0)
+					vnf_memory_footprint = (uint16_t) n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "memory-footprint must be > 0\n");
+			}
+			if (!strcmp(lgopts[opt_idx].name, "nb-rnd-write")) {
+				n = atoi(optarg);
+				if (n > 0)
+					nb_rnd_write = (uint16_t) n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "nb-rnd-write must be > 0\n");
+			}
+			if (!strcmp(lgopts[opt_idx].name, "nb-rnd-read")) {
+				n = atoi(optarg);
+				if (n > 0)
+					nb_rnd_read = (uint16_t) n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "nb-rnd-read must be > 0\n");
+			}
+			if (!strcmp(lgopts[opt_idx].name, "nb-rnd-read-write")) {
+				n = atoi(optarg);
+				if (n > 0)
+					nb_rnd_read_write = (uint16_t) n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "nb-rnd-read-write must be > 0\n");
 			}
 #endif
 			break;
