@@ -34,7 +34,7 @@ toggle_wrap_counter(struct vhost_virtqueue *vq)
 static inline uint16_t
 increase_index (uint16_t index, uint32_t size)
 {
-	return ++index >= size ? 0 : index;
+	return ++index == size ? 0 : index;
 }
 
 static inline uint16_t

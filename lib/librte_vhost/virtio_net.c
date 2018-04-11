@@ -405,7 +405,7 @@ __fill_vec_buf_packed(struct virtio_net *dev, struct vhost_virtqueue *vq,
 			 struct buf_vector *buf_vec,
 			 uint32_t *len, uint32_t *vec_id)
 {
-	uint16_t idx = vq->last_avail_idx;
+	uint16_t idx = vq->last_avail_idx % vq->size; 
 	struct vring_desc_packed *descs = vq->desc_packed;
 	uint32_t _vec_id = *vec_id;
 
@@ -433,7 +433,7 @@ __fill_vec_buf_packed(struct virtio_net *dev, struct vhost_virtqueue *vq,
 		if ((descs[idx].flags & VRING_DESC_F_NEXT) == 0)
 			break;
 
-		idx + increase_index(idx, vq->size);
+		idx = increase_index(idx, vq->size);
 	}
 	*vec_id = _vec_id;
 
@@ -491,7 +491,7 @@ fill_vec_buf(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	uint32_t len    = 0;
 
 	if (vq_is_packed(dev))
-		idx = vq->last_avail_idx;
+		idx = vq->last_avail_idx % (vq->size);
 	else
 		idx = vq->avail->ring[avail_idx & (vq->size - 1)];
 
