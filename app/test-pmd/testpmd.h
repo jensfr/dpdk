@@ -396,6 +396,10 @@ extern int16_t tx_rs_thresh;
 
 extern uint16_t bsize_before_send;
 extern uint16_t flush_timer;
+extern uint64_t vnf_memory_footprint;
+extern uint64_t nb_rnd_write;
+extern uint64_t nb_rnd_read;
+extern uint64_t nb_rnd_read_write;
 
 extern uint8_t dcb_config;
 extern uint8_t dcb_test;

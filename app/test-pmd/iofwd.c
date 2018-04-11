@@ -34,9 +34,59 @@
 #include <rte_ethdev.h>
 #include <rte_string_fns.h>
 #include <rte_flow.h>
+#include <rte_malloc.h>
 
 #include "testpmd.h"
 #include "fifo.h"
+
+static inline void
+do_write(char *vnf_mem)
+{
+	uint64_t i = rte_rand();
+	uint64_t w = rte_rand();
+
+	vnf_mem[i % ((vnf_memory_footprint * 1024 * 1024 ) /
+			RTE_CACHE_LINE_SIZE)] = w;
+}
+
+static inline void
+do_read(char *vnf_mem)
+{
+	uint64_t i = rte_rand();
+	uint64_t r = 0;
+
+	r = vnf_mem[i % ((vnf_memory_footprint * 1024 * 1024 ) /
+			RTE_CACHE_LINE_SIZE)];
+	r++;
+}
+
+static inline void
+do_rw(char *vnf_mem)
+{
+	do_read(vnf_mem);
+	do_write(vnf_mem);
+}
+
+/*
+ * Simulate route lookups as defined by commandline parameters
+ */
+static void
+sim_memory_lookups(uint16_t nb_pkts)
+{
+	char *vnf_mem = rte_zmalloc("vnf sim memory",
+			 vnf_memory_footprint * 1024 * 1024,
+			 RTE_CACHE_LINE_SIZE);
+	uint16_t i,j;
+
+	for (i = 0; i < nb_pkts; i++) {
+		for (j = 0; j < nb_rnd_write; j++)
+			do_write(vnf_mem);
+		for (j = 0; j < nb_rnd_read; j++)
+			do_read(vnf_mem);
+		for (j = 0; j < nb_rnd_read_write; j++)
+			do_rw(vnf_mem);
+	}
+}
 
 /*
  * Forwarding of packets in I/O mode.
@@ -106,6 +156,9 @@ pkt_burst_io_forward(struct fwd_stream *fs)
 		nb_tx = rte_eth_tx_burst(fs->tx_port, fs->tx_queue,
 				pkts_burst, nb_rx);
 	}
+
+	/* simulate noisy vnf by trashing cache lines, simulate route lookups */
+	sim_memory_lookups(nb_rx);
 
 	/*
 	 * TX burst queue drain
