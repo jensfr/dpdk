@@ -289,7 +289,7 @@ set fwd
 Set the packet forwarding mode::
 
    testpmd> set fwd (io|mac|macswap|flowgen| \
-                     rxonly|txonly|csum|icmpecho) (""|retry)
+                     rxonly|txonly|csum|icmpecho|noisy) (""|retry)
 
 ``retry`` can be specified for forwarding engines except ``rx_only``.
 
@@ -327,8 +327,11 @@ The available information categories are:
   also modify the default hierarchy or specify the new hierarchy through CLI for
   implementing QoS scheduler.  Requires ``CONFIG_RTE_LIBRTE_PMD_SOFTNIC=y`` ``CONFIG_RTE_LIBRTE_SCHED=y``.
 
-Example::
+* ``noisy``: Noisy neighbour simulation.
+  Simulate more realistic behavior of a guest machine engaged in receiving
+  and sending packets performing Virtual Network Function (VNF).
 
+Example::
    testpmd> set fwd rxonly
 
    Set rxonly packet forwarding mode
