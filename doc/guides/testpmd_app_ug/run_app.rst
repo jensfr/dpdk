@@ -340,6 +340,7 @@ The commandline options are:
        icmpecho
        ieee1588
        tm
+       noisy
 
 *   ``--rss-ip``
 
@@ -498,3 +499,29 @@ The commandline options are:
 *   ``--no-mlockall``
 
     Disable locking all memory.
+
+*   ``--noisy-buffersize-before-sending=N``
+
+    Set the number of maximum elements  of the FIFO queue to be created
+    for buffering packets. Only available with the noisy forwarding mode.
+    The default value is 0.
+
+*   ``--noisy-flush-timeout=N``
+
+    Set the size of the FIFO queue to be created for buffering packets.
+    Only available with the noisy forwarding mode. The default value is 0.
+
+*   ``--noisy-nb-rnd-read=N``
+
+    Set the number of reads to be done in noisy neighbour simulation memory buffer.
+    Only available with the noisy forwarding mode. The default value is 0.
+
+*   ``--noisy-nb-rnd-write=N``
+
+    Set the number of writes to be done in noisy neighbour simulation memory buffer.
+    Only available with the noisy forwarding mode. The default value is 0.
+
+*   ``--noisy-nb-rnd-write=N``
+
+    Set the number of r/w access to be done in noisy neighbour simulation memory buffer.
+    Only available with the noisy forwarding mode. The default value is 0.
