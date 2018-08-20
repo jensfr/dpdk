@@ -69,7 +69,7 @@ virtqueue_rxvq_flush(struct virtqueue *vq)
 
 	if (vtpci_packed_queue(vq->hw)) {
 		i = vq->vq_used_cons_idx;
-		while (desc_is_used(&descs[i])) {
+		while (desc_is_used(&descs[i], &vq->vq_ring) && i < vq->vq_nentries) {
 			dxp = &vq->vq_descx[i];
 			if (dxp->cookie != NULL)
 				rte_pktmbuf_free(dxp->cookie);

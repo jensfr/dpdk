@@ -179,6 +179,10 @@ struct virtqueue {
 	uint16_t vq_signalled_avail;
 	int vq_signalled_avail_valid;
 
+	/* debug */
+	uint16_t avail_counters_wrapped;
+	uint16_t used_counters_wrapped;
+
 	void *vq_ring_virt_mem;  /**< linear address of vring*/
 	unsigned int vq_ring_size;
 
@@ -260,8 +264,10 @@ update_pq_avail_index(struct virtqueue *vq)
 	uint16_t idx;
 
 	idx = increment_pq_index(vq->vq_avail_idx, vq->vq_nentries);
-	if (idx == 0)
-		toggle_wrap_counter(&vq->vq_ring);
+	if (idx == 0) {
+		vq->vq_ring.avail_wrap_counter ^= 1;
+		vq->avail_counters_wrapped++;
+	}
 	vq->vq_avail_idx = idx;
 
 	return vq->vq_avail_idx;

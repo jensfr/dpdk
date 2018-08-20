@@ -18,6 +18,7 @@
 #define VIRTIO_MAX_MAC_ADDRS 64
 #define VIRTIO_MIN_RX_BUFSIZE 64
 #define VIRTIO_MAX_RX_PKTLEN  9728U
+	 //1u << VIRTIO_NET_F_MRG_RXBUF	  |	
 
 /* Features desired/implemented by this driver. */
 #define VIRTIO_PMD_DEFAULT_GUEST_FEATURES	\
@@ -31,7 +32,6 @@
 	 1u << VIRTIO_NET_F_CSUM	  |	\
 	 1u << VIRTIO_NET_F_HOST_TSO4	  |	\
 	 1u << VIRTIO_NET_F_HOST_TSO6	  |	\
-	 1u << VIRTIO_NET_F_MRG_RXBUF	  |	\
 	 1u << VIRTIO_NET_F_MTU	| \
 	 1ULL << VIRTIO_NET_F_GUEST_ANNOUNCE |	\
 	 1u << VIRTIO_RING_F_INDIRECT_DESC |    \

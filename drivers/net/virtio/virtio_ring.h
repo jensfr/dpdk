@@ -16,10 +16,9 @@
 /* This means the buffer contains a list of buffer descriptors. */
 #define VRING_DESC_F_INDIRECT   4
 /* This flag means the descriptor was made available by the driver */
-
-#define VRING_DESC_F_AVAIL	(1ULL << 7)
+#define VRING_DESC_F_AVAIL(b)   ((uint16_t)(b) << 7)
 /* This flag means the descriptor was used by the device */
-#define VRING_DESC_F_USED	(1ULL << 15)
+#define VRING_DESC_F_USED(b)    ((uint16_t)(b) << 15)
 /* The Host uses this in used->flags to advise the Guest: don't kick me
  * when you add a buffer.  It's unreliable, so it's simply an
  * optimization.  Guest will still kick if it's out of buffers. */
@@ -79,6 +78,7 @@ struct vring_packed_desc_event {
 struct vring {
 	unsigned int num;
 	unsigned int avail_wrap_counter;
+	unsigned int used_wrap_counter;
 	union {
 		struct vring_desc_packed *desc_packed;
 		struct vring_desc *desc;
@@ -94,40 +94,27 @@ struct vring {
 };
 
 static inline void
-toggle_wrap_counter(struct vring *vr)
+_set_desc_avail(struct vring_desc_packed *desc, int wrap_counter)
 {
-	vr->avail_wrap_counter ^= 1;
+	desc->flags |= VRING_DESC_F_AVAIL(wrap_counter) |
+		       VRING_DESC_F_USED(!wrap_counter);
 }
 
 static inline void
-_set_desc_avail(struct vring_desc_packed *desc,
-				   int wrap_counter)
-{
-	uint16_t flags = desc->flags;
-
-	if (wrap_counter) {
-		flags |= VRING_DESC_F_AVAIL;
-		flags &= ~VRING_DESC_F_USED;
-	} else {
-		flags &= ~VRING_DESC_F_AVAIL;
-		flags |= VRING_DESC_F_USED;
-	}
-
-	desc->flags = flags;
-}
-
-static inline void
-set_desc_avail(struct vring *vr,
-				  struct vring_desc_packed *desc)
+set_desc_avail(struct vring *vr, struct vring_desc_packed *desc)
 {
 	_set_desc_avail(desc, vr->avail_wrap_counter);
 }
 
 static inline int
-desc_is_used(struct vring_desc_packed *desc)
+desc_is_used(struct vring_desc_packed *desc, struct vring *vr)
 {
-	return !(desc->flags & VRING_DESC_F_AVAIL) ==
-		!(desc->flags & VRING_DESC_F_USED);
+	uint16_t used, avail;
+	
+	used = !!(desc->flags & VRING_DESC_F_USED(1));
+	avail = !!(desc->flags & VRING_DESC_F_AVAIL(1));
+
+	return used == avail && used == vr->used_wrap_counter;
 }
 
 /* The standard layout for the ring is a continuous chunk of memory which

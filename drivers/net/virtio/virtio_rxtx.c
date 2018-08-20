@@ -50,13 +50,20 @@ virtio_xmit_cleanup_packed(struct virtqueue *vq)
 	struct vq_desc_extra *dxp;
 
 	idx = vq->vq_used_cons_idx;
-	while (desc_is_used(&desc[idx]) &&
+	while (desc_is_used(&desc[idx], &vq->vq_ring) &&
 	       vq->vq_free_cnt < size) {
 		dxp = &vq->vq_descx[idx];
 		vq->vq_free_cnt += dxp->ndescs;
-		idx = vq->vq_used_cons_idx + dxp->ndescs;
+		idx += dxp->ndescs;
+/*
+		if (idx >= size) {
+			vq->vq_ring.used_wrap_counter ^= 1;
+			vq->used_counters_wrapped++;
+		}
+*/
 		idx = idx >= size ? idx - size : idx;
 	}
+	//vq->vq_used_cons_idx = idx;
 }
 
 uint16_t
@@ -67,7 +74,7 @@ virtio_xmit_pkts_packed(void *tx_queue, struct rte_mbuf **tx_pkts,
 	struct virtqueue *vq = txvq->vq;
 	uint16_t i;
 	struct vring_desc_packed *desc = vq->vq_ring.desc_packed;
-	uint16_t idx;
+	uint16_t idx, prev;
 	struct vq_desc_extra *dxp;
 
 	if (unlikely(nb_pkts < 1))
@@ -100,7 +107,7 @@ virtio_xmit_pkts_packed(void *tx_queue, struct rte_mbuf **tx_pkts,
 		vq->vq_free_cnt -= txm->nb_segs + 1;
 
 		wrap_counter = vq->vq_ring.avail_wrap_counter;
-		idx = update_pq_avail_index(vq);
+		idx = vq->vq_avail_idx;
 		head_idx = idx;
 
 		dxp = &vq->vq_descx[idx];
@@ -118,16 +125,23 @@ virtio_xmit_pkts_packed(void *tx_queue, struct rte_mbuf **tx_pkts,
 			idx = update_pq_avail_index(vq);
 			desc[idx].addr  = VIRTIO_MBUF_DATA_DMA_ADDR(txm, vq);
 			desc[idx].len   = txm->data_len;
-			desc[idx].flags = VRING_DESC_F_NEXT;
-			desc[idx].index = head_idx;
+			desc[idx].flags = VRING_DESC_F_NEXT |
+				VRING_DESC_F_AVAIL(vq->vq_ring.avail_wrap_counter) |
+				VRING_DESC_F_USED(!vq->vq_ring.avail_wrap_counter);
 			descs_used++;
 		} while ((txm = txm->next) != NULL);
 
 		desc[idx].flags &= ~VRING_DESC_F_NEXT;
 
 		rte_smp_wmb();
-		_set_desc_avail(&desc[head_idx], wrap_counter);
+		prev = (idx > 0 ? idx : vq->vq_nentries) - 1;
+		desc[prev].index = head_idx; //FIXME
+		desc[head_idx].flags =
+				(VRING_DESC_F_AVAIL(wrap_counter) |
+				VRING_DESC_F_USED(!wrap_counter)); 
+		//_set_desc_avail(&desc[head_idx], wrap_counter);
 		vq->vq_descx[head_idx].ndescs = descs_used;
+		idx = update_pq_avail_index(vq);
 		if (unlikely(virtqueue_kick_prepare_packed(vq))) {
 			virtqueue_notify(vq);
 			PMD_RX_LOG(DEBUG, "Notified");
@@ -229,7 +243,7 @@ virtqueue_dequeue_burst_rx_packed(struct virtqueue *vq,
 	for (i = 0; i < num; i++) {
 		used_idx = vq->vq_used_cons_idx;
 		desc = &vq->vq_ring.desc_packed[used_idx];
-		if (!desc_is_used(desc))
+		if (!desc_is_used(desc, &vq->vq_ring))
 			return i;
 		len[i] = desc->len;
 		cookie = (struct rte_mbuf *)vq->vq_descx[used_idx].cookie;
@@ -246,8 +260,11 @@ virtqueue_dequeue_burst_rx_packed(struct virtqueue *vq,
 		virtio_refill_packed(vq, used_idx, rx_queue);
 
 		rte_smp_wmb();
-		if (vq->vq_used_cons_idx == 0)
-			toggle_wrap_counter(&vq->vq_ring);
+		/* FIXME this is bullshit, used wrap counter needs to be toggled */
+		if (vq->vq_used_cons_idx == 0){
+			vq->vq_ring.used_wrap_counter ^= 1;
+			vq->used_counters_wrapped++;
+		}
 		set_desc_avail(&vq->vq_ring, desc);
 		vq->vq_used_cons_idx = increment_pq_index(vq->vq_used_cons_idx,
 							  vq->vq_nentries);
@@ -625,10 +642,11 @@ virtio_dev_rx_queue_setup_finish(struct rte_eth_dev *dev, uint16_t queue_idx)
 			desc->len = m->buf_len - RTE_PKTMBUF_HEADROOM +
 				hw->vtnet_hdr_size;
 			desc->flags |= VRING_DESC_F_WRITE;
-			rte_smp_wmb();
 			set_desc_avail(&vq->vq_ring, desc);
+			rte_smp_wmb();
 		}
-		toggle_wrap_counter(&vq->vq_ring);
+		vq->vq_ring.avail_wrap_counter ^= 1;
+		vq->avail_counters_wrapped++;
 		nbufs = desc_idx;
 		goto out;
 	}
@@ -924,8 +942,8 @@ virtio_recv_pkts_packed(void *rx_queue, struct rte_mbuf **rx_pkts,
 	struct virtio_net_hdr *hdr;
 	struct vring_desc_packed *descs = vq->vq_ring.desc_packed;
 	struct vring_desc_packed *desc;
-	uint16_t used_idx = vq->vq_used_cons_idx;
 	struct vq_desc_extra *dxp;
+	uint16_t used_idx, id;
 
 	nb_rx = 0;
 	if (unlikely(hw->started == 0))
@@ -935,11 +953,13 @@ virtio_recv_pkts_packed(void *rx_queue, struct rte_mbuf **rx_pkts,
 	offload = rx_offload_enabled(hw);
 
 	for (i = 0; i < nb_pkts; i++) {
+		rte_smp_rmb();
+		used_idx = vq->vq_used_cons_idx;
 		desc = &descs[used_idx];
-		if (!desc_is_used(desc))
+		id = desc->index;
+		if (!desc_is_used(desc, &vq->vq_ring))
 			break;
 
-		rte_smp_rmb();
 
 		nmb = rte_mbuf_raw_alloc(rxvq->mpool);
 		if (unlikely(nmb == NULL)) {
@@ -949,7 +969,12 @@ virtio_recv_pkts_packed(void *rx_queue, struct rte_mbuf **rx_pkts,
 			break;
 		}
 
-		dxp = &vq->vq_descx[used_idx];
+		if (unlikely(id >= vq->vq_nentries))
+			printf("FIXME\n");
+		if (unlikely(!vq->vq_descx[id].cookie))
+			printf	("FIXME not a head\n");
+
+		dxp = &vq->vq_descx[id];
 
 		len = desc->len;
 		rxm = dxp->cookie;
@@ -960,7 +985,7 @@ virtio_recv_pkts_packed(void *rx_queue, struct rte_mbuf **rx_pkts,
 			RTE_PKTMBUF_HEADROOM - hw->vtnet_hdr_size;
 		desc->len = nmb->buf_len - RTE_PKTMBUF_HEADROOM +
 			hw->vtnet_hdr_size;
-		desc->flags |= VRING_DESC_F_WRITE;
+		desc->flags = VRING_DESC_F_WRITE;
 
 		PMD_RX_LOG(DEBUG, "packet len:%d", len);
 
@@ -997,13 +1022,15 @@ virtio_recv_pkts_packed(void *rx_queue, struct rte_mbuf **rx_pkts,
 		virtio_update_packet_stats(&rxvq->stats, rxm);
 
 		rte_smp_wmb();
-		set_desc_avail(&vq->vq_ring, desc);
 
 		rx_pkts[nb_rx++] = rxm;
 
-		used_idx = increment_pq_index(used_idx, vq->vq_nentries);
-		if (used_idx == 0)
-			toggle_wrap_counter(&vq->vq_ring);
+		vq->vq_used_cons_idx += dxp->ndescs;
+		if (vq->vq_used_cons_idx >= vq->vq_nentries) {
+			vq->vq_used_cons_idx -= vq->vq_nentries;
+			vq->vq_ring.used_wrap_counter ^= 1;
+			vq->used_counters_wrapped++;
+		}
 	}
 
 	rxvq->stats.packets += nb_rx;
@@ -1012,7 +1039,6 @@ virtio_recv_pkts_packed(void *rx_queue, struct rte_mbuf **rx_pkts,
 		PMD_RX_LOG(DEBUG, "Notified");
 	}
 
-	vq->vq_used_cons_idx = used_idx;
 
 	return nb_rx;
 }
