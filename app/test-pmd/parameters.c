@@ -625,6 +625,12 @@ launch_args_parse(int argc, char** argv)
 		{ "vxlan-gpe-port",		1, 0, 0 },
 		{ "mlockall",			0, 0, 0 },
 		{ "no-mlockall",		0, 0, 0 },
+		{ "noisy-tx-sw-buffer-size",	1, 0, 0 },
+		{ "noisy-tx-sw-buffer-flushtime",1, 0, 0 },
+		{ "noisy-lkup-memory",		1, 0, 0 },
+		{ "noisy-lkup-num-writes",	1, 0, 0 },
+		{ "noisy-lkup-num-reads",	1, 0, 0 },
+		{ "noisy-lkup-num-reads-writes",1, 0, 0 },
 		{ 0, 0, 0, 0 },
 	};
 
@@ -1147,6 +1153,60 @@ launch_args_parse(int argc, char** argv)
 				do_mlockall = 1;
 			if (!strcmp(lgopts[opt_idx].name, "no-mlockall"))
 				do_mlockall = 0;
+			if (!strcmp(lgopts[opt_idx].name,
+				    "noisy-tx-sw-buffer-size")) {
+				n = atoi(optarg);
+				if (n >= 0)
+					noisy_tx_sw_bufsz = n;
+				else
+					rte_exit(EXIT_FAILURE,
+						"noisy-tx-sw-buffer-size must be >= 0\n");
+			}
+			if (!strcmp(lgopts[opt_idx].name,
+				    "noisy-tx-sw-buffer-flushtime")) {
+				n = atoi(optarg);
+				if (n >= 0)
+					noisy_tx_sw_buf_flush_time = n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "noisy-tx-sw-buffer-flushtime must be >= 0\n");
+			}
+			if (!strcmp(lgopts[opt_idx].name,
+				    "noisy-lkup-memory")) {
+				n = atoi(optarg);
+				if (n > 0)
+					noisy_lkup_mem_sz = n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "noisy-lkup-memory must be > 0\n");
+			}
+			if (!strcmp(lgopts[opt_idx].name,
+				    "noisy-lkup-num-writes")) {
+				n = atoi(optarg);
+				if (n > 0)
+					noisy_lkup_num_writes = n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "noisy-lkup-num-writes must be > 0\n");
+			}
+			if (!strcmp(lgopts[opt_idx].name,
+				    "noisy-lkup-num-reads")) {
+				n = atoi(optarg);
+				if (n > 0)
+					noisy_lkup_num_reads = n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "noisy-lkup-num-reads must be > 0\n");
+			}
+			if (!strcmp(lgopts[opt_idx].name,
+				    "noisy-lkup-num-reads-writes")) {
+				n = atoi(optarg);
+				if (n > 0)
+					noisy_lkup_num_reads_writes = n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "noisy-lkup-num-reads-writes must be > 0\n");
+			}
 			break;
 		case 'h':
 			usage(argv[0]);
