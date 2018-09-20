@@ -155,7 +155,7 @@ virtio_pq_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
 	int sum = 0;
 	int i,k;
 
-	if ((head & (vq->vq_nentries - 1)) == 0) {
+	if ((vq->vq_avail_idx & (vq->vq_nentries - 1)) == 0) {
 		vq->vq_ring.avail_wrap_counter ^= 1;
 	}
 	wrap_counter = vq->vq_ring.avail_wrap_counter;
@@ -181,7 +181,7 @@ virtio_pq_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
 		desc[i].flags = flags;
 		sum += dlen[i];
 		vq->vq_free_cnt--;
-		_set_desc_avail(&desc[i], wrap_counter);
+		_set_desc_avail(&desc[i], vq->vq_ring.avail_wrap_counter);
 		rte_smp_wmb();
 		i++;
 		if (i >= vq->vq_nentries) {

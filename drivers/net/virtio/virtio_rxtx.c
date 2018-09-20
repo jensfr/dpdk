@@ -155,7 +155,7 @@ virtqueue_dequeue_burst_rx_packed(struct virtqueue *vq,
 		rte_smp_wmb();
 		if (vq->vq_used_cons_idx == 0)
 			vq->vq_ring.used_wrap_counter ^= 1;
-		set_desc_avail(&vq->vq_ring, desc);
+		//set_desc_avail(&vq->vq_ring, desc);
 		if (++vq->vq_used_cons_idx >= vq->vq_nentries) {
 			vq->vq_used_cons_idx = 0;
 			vq->vq_ring.used_wrap_counter ^= 1;

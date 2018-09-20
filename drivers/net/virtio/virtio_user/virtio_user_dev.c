@@ -433,10 +433,10 @@ virtio_user_dev_init(struct virtio_user_dev *dev, char *path, int queues,
 		dev->unsupported_features |= (1ull << VIRTIO_F_IN_ORDER);
 	}
 
-	if (packed_vq)
-		dev->device_features |= (1ull << VIRTIO_F_RING_PACKED);
-	else
+	if (!packed_vq) {
 		dev->device_features &= ~(1ull << VIRTIO_F_RING_PACKED);
+		dev->unsupported_features |= (1ull << VIRTIO_F_RING_PACKED);
+	}
 
 	if (dev->mac_specified) {
 		dev->device_features |= (1ull << VIRTIO_NET_F_MAC);
