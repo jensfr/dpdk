@@ -54,6 +54,15 @@ vq_ring_free_inorder(struct virtqueue *vq, uint16_t desc_idx, uint16_t num)
 	vq->vq_desc_tail_idx = desc_idx & (vq->vq_nentries - 1);
 }
 
+
+void
+vq_ring_free_inorder_pq(struct virtqueue *vq, uint16_t desc_idx, uint16_t num)
+{
+	vq->vq_free_cnt += num;
+	if (desc_idx >= vq->vq_nentries)
+		vq->vq_desc_tail_idx -= vq->vq_nentries;
+}
+
 void
 vq_ring_free_chain(struct virtqueue *vq, uint16_t desc_idx)
 {
@@ -285,6 +294,42 @@ virtio_xmit_cleanup_inorder(struct virtqueue *vq, uint16_t num)
 	vq_ring_free_inorder(vq, last_idx, free_cnt);
 }
 
+
+/* Cleanup from completed inorder transmits. */
+static void
+virtio_xmit_cleanup_inorder_pq(struct virtqueue *vq, uint16_t num)
+{
+	uint16_t i, used_idx, desc_idx = 0, last_idx;
+	int16_t free_cnt = 0;
+	struct vq_desc_extra *dxp = NULL;
+
+	if (unlikely(num == 0))
+		return;
+
+	for (i = 0; i < num; i++) {
+		used_idx = vq->vq_used_cons_idx;
+		desc_idx = vq->vq_ring.desc_packed[used_idx].index;
+
+		dxp = &vq->vq_descx[desc_idx];
+		if (++vq->vq_used_cons_idx >= vq->vq_nentries) {
+			vq->vq_used_cons_idx -= vq->vq_nentries;
+			vq->vq_ring.used_wrap_counter ^= 1;
+		}
+
+		if (dxp->cookie != NULL) {
+			rte_pktmbuf_free(dxp->cookie);
+			dxp->cookie = NULL;
+		}
+	}
+
+	last_idx = desc_idx + dxp->ndescs - 1;
+	free_cnt = last_idx - vq->vq_desc_tail_idx;
+	if (free_cnt <= 0)
+		free_cnt += vq->vq_nentries;
+
+	vq_ring_free_inorder_pq(vq, last_idx, free_cnt);
+}
+
 static inline int
 virtqueue_enqueue_refill_inorder(struct virtqueue *vq,
 			struct rte_mbuf **cookies,
@@ -464,6 +509,62 @@ virtqueue_xmit_offload(struct virtio_net_hdr *hdr,
 		}
 	}
 }
+
+static inline void
+virtqueue_enqueue_xmit_inorder_pq(struct virtnet_tx *txvq,
+			struct rte_mbuf **cookies,
+			uint16_t num)
+{
+	struct vq_desc_extra *dxp;
+	struct virtqueue *vq = txvq->vq;
+	struct vring_desc_packed *start_dp;
+	struct virtio_net_hdr *hdr;
+	uint16_t idx;
+	uint16_t head_size = vq->hw->vtnet_hdr_size;
+	uint16_t i = 0;
+
+	idx = vq->vq_desc_head_idx;
+	start_dp = vq->vq_ring.desc_packed;
+
+	while (i < num) {
+		dxp = &vq->vq_descx[idx];
+		dxp->cookie = (void *)cookies[i];
+		dxp->ndescs = 1;
+
+		hdr = (struct virtio_net_hdr *)
+			rte_pktmbuf_prepend(cookies[i], head_size);
+		cookies[i]->pkt_len -= head_size;
+
+		/* if offload disabled, it is not zeroed below, do it now */
+		if (!vq->hw->has_tx_offload) {
+			ASSIGN_UNLESS_EQUAL(hdr->csum_start, 0);
+			ASSIGN_UNLESS_EQUAL(hdr->csum_offset, 0);
+			ASSIGN_UNLESS_EQUAL(hdr->flags, 0);
+			ASSIGN_UNLESS_EQUAL(hdr->gso_type, 0);
+			ASSIGN_UNLESS_EQUAL(hdr->gso_size, 0);
+			ASSIGN_UNLESS_EQUAL(hdr->hdr_len, 0);
+		}
+
+		virtqueue_xmit_offload(hdr, cookies[i],
+				vq->hw->has_tx_offload);
+
+		start_dp[idx].addr  = VIRTIO_MBUF_DATA_DMA_ADDR(cookies[i], vq);
+		start_dp[idx].len   = cookies[i]->data_len;
+		start_dp[idx].flags |=
+			VRING_DESC_F_AVAIL(vq->vq_ring.avail_wrap_counter) |
+			VRING_DESC_F_USED(!vq->vq_ring.avail_wrap_counter);
+
+
+		if (++idx >= vq->vq_nentries) {
+			idx -= vq->vq_nentries;
+			vq->vq_ring.avail_wrap_counter ^= 1;
+		}
+	};
+
+	vq->vq_free_cnt = (uint16_t)(vq->vq_free_cnt - num);
+	vq->vq_desc_head_idx = idx & (vq->vq_nentries - 1);
+}
+
 
 static inline void
 virtqueue_enqueue_xmit_inorder(struct virtnet_tx *txvq,
@@ -917,8 +1018,12 @@ virtio_dev_tx_queue_setup_finish(struct rte_eth_dev *dev,
 
 	PMD_INIT_FUNC_TRACE();
 
-	if (hw->use_inorder_tx)
-		vq->vq_ring.desc[vq->vq_nentries - 1].next = 0;
+	if (hw->use_inorder_tx) {
+		if (!vtpci_packed_queue(hw))
+			vq->vq_descx[vq->vq_nentries - 1].next = 0;
+		else
+			vq->vq_ring.desc[vq->vq_nentries - 1].next = 0;
+	}
 
 	VIRTQUEUE_DUMP(vq);
 
@@ -1819,6 +1924,117 @@ virtio_xmit_pkts_inorder(void *tx_queue,
 		vq_update_avail_idx(vq);
 
 		if (unlikely(virtqueue_kick_prepare(vq))) {
+			virtqueue_notify(vq);
+			PMD_TX_LOG(DEBUG, "Notified backend after xmit");
+		}
+	}
+
+	VIRTQUEUE_DUMP(vq);
+
+	return nb_tx;
+}
+uint16_t
+virtio_xmit_pkts_inorder_pq(void *tx_queue,
+			struct rte_mbuf **tx_pkts,
+			uint16_t nb_pkts)
+{
+	struct virtnet_tx *txvq = tx_queue;
+	struct virtqueue *vq = txvq->vq;
+	struct virtio_hw *hw = vq->hw;
+	uint16_t hdr_size = hw->vtnet_hdr_size;
+	uint16_t nb_used, nb_avail, nb_tx = 0, nb_inorder_pkts = 0;
+	struct rte_mbuf *inorder_pkts[nb_pkts];
+	int error;
+
+	if (unlikely(hw->started == 0 && tx_pkts != hw->inject_pkts))
+		return nb_tx;
+
+	if (unlikely(nb_pkts < 1))
+		return nb_pkts;
+
+	VIRTQUEUE_DUMP(vq);
+	PMD_TX_LOG(DEBUG, "%d packets to xmit", nb_pkts);
+	nb_used = nb_pkts;
+
+	virtio_rmb();
+	if (likely(nb_used > vq->vq_nentries - vq->vq_free_thresh))
+		virtio_xmit_cleanup_inorder_pq(vq, nb_used);
+
+	if (unlikely(!vq->vq_free_cnt))
+		virtio_xmit_cleanup_inorder_pq(vq, nb_used);
+
+	nb_avail = RTE_MIN(vq->vq_free_cnt, nb_pkts);
+
+	for (nb_tx = 0; nb_tx < nb_avail; nb_tx++) {
+		struct rte_mbuf *txm = tx_pkts[nb_tx];
+		int slots, need;
+
+		/* Do VLAN tag insertion */
+		if (unlikely(txm->ol_flags & PKT_TX_VLAN_PKT)) {
+			error = rte_vlan_insert(&txm);
+			if (unlikely(error)) {
+				rte_pktmbuf_free(txm);
+				continue;
+			}
+		}
+
+		/* optimize ring usage */
+		if ((vtpci_with_feature(hw, VIRTIO_F_ANY_LAYOUT) ||
+		     vtpci_with_feature(hw, VIRTIO_F_VERSION_1)) &&
+		     rte_mbuf_refcnt_read(txm) == 1 &&
+		     RTE_MBUF_DIRECT(txm) &&
+		     txm->nb_segs == 1 &&
+		     rte_pktmbuf_headroom(txm) >= hdr_size &&
+		     rte_is_aligned(rte_pktmbuf_mtod(txm, char *),
+				__alignof__(struct virtio_net_hdr_mrg_rxbuf))) {
+			inorder_pkts[nb_inorder_pkts] = txm;
+			nb_inorder_pkts++;
+
+			txvq->stats.bytes += txm->pkt_len;
+			virtio_update_packet_stats(&txvq->stats, txm);
+			continue;
+		}
+
+		if (nb_inorder_pkts) {
+			virtqueue_enqueue_xmit_inorder(txvq, inorder_pkts,
+							nb_inorder_pkts);
+			nb_inorder_pkts = 0;
+		}
+
+		slots = txm->nb_segs + 1;
+		need = slots - vq->vq_free_cnt;
+		if (unlikely(need > 0)) {
+			nb_used = nb_pkts;
+			virtio_rmb();
+			need = RTE_MIN(need, (int)nb_used);
+
+			virtio_xmit_cleanup_inorder_pq(vq, need);
+
+			need = slots - vq->vq_free_cnt;
+
+			if (unlikely(need > 0)) {
+				PMD_TX_LOG(ERR,
+					"No free tx descriptors to transmit");
+				break;
+			}
+		}
+		/* Enqueue Packet buffers */
+		virtqueue_enqueue_xmit_packed(txvq, txm, slots, 0, 0, 1);
+
+		txvq->stats.bytes += txm->pkt_len;
+		virtio_update_packet_stats(&txvq->stats, txm);
+	}
+
+	/* Transmit all inorder packets */
+	if (nb_inorder_pkts)
+		virtqueue_enqueue_xmit_inorder_pq(txvq, inorder_pkts,
+						nb_inorder_pkts);
+
+	txvq->stats.packets += nb_tx;
+
+	if (likely(nb_tx)) {
+
+		if (unlikely(virtqueue_kick_prepare_packed(vq))) {
 			virtqueue_notify(vq);
 			PMD_TX_LOG(DEBUG, "Notified backend after xmit");
 		}

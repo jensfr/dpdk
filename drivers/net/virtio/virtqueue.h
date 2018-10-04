@@ -337,6 +337,8 @@ void vq_ring_free_chain(struct virtqueue *vq, uint16_t desc_idx);
 void vq_ring_free_chain_packed(struct virtqueue *vq, uint16_t desc_idx);
 void vq_ring_free_inorder(struct virtqueue *vq, uint16_t desc_idx,
 			  uint16_t num);
+void vq_ring_free_inorder_pq(struct virtqueue *vq, uint16_t desc_idx,
+			  uint16_t num);
 
 static inline void
 vq_update_avail_idx(struct virtqueue *vq)
