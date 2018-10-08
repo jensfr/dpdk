@@ -483,6 +483,9 @@ virtio_init_queue(struct rte_eth_dev *dev, uint16_t vtpci_queue_idx)
 	if (vtpci_packed_queue(hw)) {
 		vq->vq_ring.avail_wrap_counter = 1;
 		vq->vq_ring.used_wrap_counter = 1;
+		vq->vq_ring.used_flags = 
+				VRING_DESC_F_USED(vq->vq_ring.used_wrap_counter) |
+				VRING_DESC_F_AVAIL(vq->vq_ring.used_wrap_counter);
 	}
 
 	/*
@@ -1425,10 +1428,12 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 	struct virtio_hw *hw = eth_dev->data->dev_private;
 
 	if (vtpci_packed_queue(hw)) {
-		if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF)) {
+		if(hw->use_inorder_rx) {
+			eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts_inorder;
+		} else if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF)) {
 			eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts;
 		} else {
-		eth_dev->rx_pkt_burst = &virtio_recv_pkts_packed;
+			eth_dev->rx_pkt_burst = &virtio_recv_pkts_packed;
 		}
 	} else if (hw->use_simple_rx) {
 		PMD_INIT_LOG(INFO, "virtio: using simple Rx path on port %u",
@@ -1453,7 +1458,10 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 	if (vtpci_packed_queue(hw)) {
 		PMD_INIT_LOG(INFO, "virtio: using virtio 1.1 Tx path on port %u",
 			eth_dev->data->port_id);
-		eth_dev->tx_pkt_burst = virtio_xmit_pkts_packed;
+		if (hw->use_inorder_tx)
+			eth_dev->tx_pkt_burst = virtio_xmit_pkts_inorder_pq;
+		else
+			eth_dev->tx_pkt_burst = virtio_xmit_pkts_packed;
 	} else if (hw->use_inorder_tx) {
 		PMD_INIT_LOG(INFO, "virtio: using inorder Tx path on port %u",
 			eth_dev->data->port_id);

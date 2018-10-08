@@ -61,8 +61,8 @@ void
 vq_ring_free_inorder_pq(struct virtqueue *vq, uint16_t desc_idx, uint16_t num)
 {
 	vq->vq_free_cnt += num;
-	if (desc_idx >= vq->vq_nentries)
-		vq->vq_desc_tail_idx -= vq->vq_nentries;
+//	if (desc_idx >= vq->vq_nentries)
+	vq->vq_desc_tail_idx = desc_idx & (vq->vq_nentries - 1);
 }
 
 void
@@ -210,6 +210,55 @@ virtqueue_dequeue_burst_rx(struct virtqueue *vq, struct rte_mbuf **rx_pkts,
 }
 
 static uint16_t
+virtqueue_dequeue_rx_inorder_pq(struct virtqueue *vq,
+			struct rte_mbuf **rx_pkts,
+			uint32_t *len,
+			uint16_t num)
+{
+	struct rte_mbuf *cookie;
+	uint16_t used_idx = 0;
+	uint16_t i;
+
+	if (unlikely(num == 0))
+		return 0;
+
+	for (i = 0; i < num; i++) {
+		used_idx = vq->vq_used_cons_idx & (vq->vq_nentries -1);
+		//if (!__desc_is_used(vq->vq_ring.desc_packed[used_idx].flags, &vq->vq_ring))
+		//if (!desc_is_used(&vq->vq_ring.desc_packed[used_idx], &vq->vq_ring))
+		uint16_t flags = vq->vq_ring.desc_packed[used_idx].flags;
+		bool used = flags & (1 << 15);
+		if (used != vq->vq_ring.used_wrap_counter)
+			break;
+		/* Desc idx same as used idx */
+		len[i] = vq->vq_ring.desc_packed[used_idx].len;
+		cookie = (struct rte_mbuf *)vq->vq_descx[used_idx].cookie;
+
+		if (unlikely(cookie == NULL)) {
+			PMD_DRV_LOG(ERR, "vring descriptor with no mbuf cookie at %u",
+				vq->vq_used_cons_idx);
+			break;
+		}
+
+		rte_prefetch0(cookie);
+		rte_packet_prefetch(rte_pktmbuf_mtod(cookie, void *));
+		rx_pkts[i]  = cookie;
+		if (++vq->vq_used_cons_idx >= vq->vq_nentries) {
+			vq->vq_used_cons_idx -= vq->vq_nentries;
+			vq->vq_ring.used_wrap_counter ^= 1;
+			vq->vq_ring.used_flags = 
+					VRING_DESC_F_USED(vq->vq_ring.used_wrap_counter) |
+					VRING_DESC_F_AVAIL(vq->vq_ring.used_wrap_counter);
+		}
+		vq->vq_descx[used_idx].cookie = NULL;
+	}
+
+	vq_ring_free_inorder_pq(vq, used_idx, i);
+	return i;
+}
+
+
+static uint16_t
 virtqueue_dequeue_rx_inorder(struct virtqueue *vq,
 			struct rte_mbuf **rx_pkts,
 			uint32_t *len,
@@ -261,13 +310,13 @@ virtio_xmit_cleanup_packed(struct virtqueue *vq)
 	struct vq_desc_extra *dxp;
 
 	used_idx = vq->vq_used_cons_idx;
-	while (desc_is_used(&desc[used_idx], &vq->vq_ring) &&
+	while (__desc_is_used(desc[used_idx].flags, &vq->vq_ring) &&
 	       vq->vq_free_cnt < size) {
 		used_idx = vq->vq_used_cons_idx;
 		id = desc[used_idx].index; 
 		dxp = &vq->vq_descx[id];
 		if (++vq->vq_used_cons_idx >= size) {
-			vq->vq_used_cons_idx -= size;
+			vq->vq_used_cons_idx = 0;
 			vq->vq_ring.used_wrap_counter ^= 1;
 		}
 		vq_ring_free_chain_packed(vq, id);
@@ -357,6 +406,9 @@ virtio_xmit_cleanup_inorder_pq(struct virtqueue *vq, uint16_t num)
 		if (++vq->vq_used_cons_idx >= vq->vq_nentries) {
 			vq->vq_used_cons_idx -= vq->vq_nentries;
 			vq->vq_ring.used_wrap_counter ^= 1;
+			vq->vq_ring.used_flags = 
+					VRING_DESC_F_USED(vq->vq_ring.used_wrap_counter) |
+					VRING_DESC_F_AVAIL(vq->vq_ring.used_wrap_counter);
 		}
 
 		if (dxp->cookie != NULL) {
@@ -372,6 +424,64 @@ virtio_xmit_cleanup_inorder_pq(struct virtqueue *vq, uint16_t num)
 
 	vq_ring_free_inorder_pq(vq, last_idx, free_cnt);
 }
+
+static inline int
+virtqueue_enqueue_refill_inorder_pq(struct virtqueue *vq,
+			struct rte_mbuf **cookies,
+			uint16_t num)
+{
+	struct vq_desc_extra *dxp;
+	struct virtio_hw *hw = vq->hw;
+	struct vring_desc_packed *start_dp;
+	uint16_t head_idx, idx, i = 0;
+
+	if (unlikely(vq->vq_free_cnt == 0))
+		return -ENOSPC;
+	if (unlikely(vq->vq_free_cnt < num))
+		return -EMSGSIZE;
+
+	if (vq->vq_desc_head_idx >= vq->vq_nentries)
+		vq->vq_desc_head_idx -= vq->vq_nentries;
+	head_idx = vq->vq_desc_head_idx;
+	start_dp = vq->vq_ring.desc_packed;
+
+	while (i < num) {
+		idx = head_idx;
+		dxp = &vq->vq_descx[idx];
+		dxp->cookie = (void *)cookies[i];
+		dxp->ndescs = 1;
+
+		start_dp[idx].addr =
+				VIRTIO_MBUF_ADDR(cookies[i], vq) +
+				RTE_PKTMBUF_HEADROOM - hw->vtnet_hdr_size;
+		start_dp[idx].len =
+				cookies[i]->buf_len -
+				RTE_PKTMBUF_HEADROOM +
+				hw->vtnet_hdr_size;
+		start_dp[idx].flags =  VRING_DESC_F_WRITE;
+
+		//rte_smp_mb();
+		start_dp[idx].flags |=
+				VRING_DESC_F_AVAIL(vq->vq_ring.avail_wrap_counter) |
+			       VRING_DESC_F_USED(!vq->vq_ring.avail_wrap_counter);
+		//set_desc_avail(&vq->vq_ring, &vq->vq_ring.desc_packed[head_idx]);
+		//rte_smp_wmb();
+		if (++head_idx >= vq->vq_nentries) {
+			head_idx -= vq->vq_nentries;
+			vq->vq_avail_idx = head_idx;
+			vq->vq_ring.avail_wrap_counter ^= 1;
+		}
+		i++;
+	}
+
+//	vq->vq_avail_idx = head_idx;
+	vq->vq_desc_head_idx += num;
+	if (vq->vq_desc_head_idx >= vq->vq_nentries)
+		vq->vq_desc_head_idx -= vq->vq_nentries;
+	vq->vq_free_cnt = (uint16_t)(vq->vq_free_cnt - num);
+	return 0;
+}
+
 
 static inline int
 virtqueue_enqueue_refill_inorder(struct virtqueue *vq,
@@ -607,7 +717,7 @@ virtqueue_enqueue_xmit_inorder_pq(struct virtnet_tx *txvq,
 	struct virtqueue *vq = txvq->vq;
 	struct vring_desc_packed *start_dp;
 	struct virtio_net_hdr *hdr;
-	uint16_t idx;
+	uint16_t idx; //, prev;
 	uint16_t head_size = vq->hw->vtnet_hdr_size;
 	uint16_t i = 0;
 
@@ -621,6 +731,8 @@ virtqueue_enqueue_xmit_inorder_pq(struct virtnet_tx *txvq,
 
 		hdr = (struct virtio_net_hdr *)
 			rte_pktmbuf_prepend(cookies[i], head_size);
+		if (!hdr)
+			break;
 		cookies[i]->pkt_len -= head_size;
 
 		/* if offload disabled, it is not zeroed below, do it now */
@@ -641,14 +753,21 @@ virtqueue_enqueue_xmit_inorder_pq(struct virtnet_tx *txvq,
 		start_dp[idx].flags |=
 			VRING_DESC_F_AVAIL(vq->vq_ring.avail_wrap_counter) |
 			VRING_DESC_F_USED(!vq->vq_ring.avail_wrap_counter);
+		start_dp[idx].index = idx;
 
 
 		if (++idx >= vq->vq_nentries) {
-			idx -= vq->vq_nentries;
+			idx = 0;
 			vq->vq_ring.avail_wrap_counter ^= 1;
 		}
 	};
 
+	//prev = idx > 0 ? idx - 1 : vq->vq_nentries - 1;
+	//start_dp[vq->vq_desc_head_idx].index = prev;
+	start_dp[idx].flags |=
+		VRING_DESC_F_AVAIL(vq->vq_ring.avail_wrap_counter) |
+		VRING_DESC_F_USED(!vq->vq_ring.avail_wrap_counter);
+	vq->vq_avail_idx = idx;
 	vq->vq_free_cnt = (uint16_t)(vq->vq_free_cnt - num);
 	vq->vq_desc_head_idx = idx & (vq->vq_nentries - 1);
 }
@@ -1033,7 +1152,12 @@ virtio_dev_rx_queue_setup_finish(struct rte_eth_dev *dev, uint16_t queue_idx)
 
 			if (!rte_pktmbuf_alloc_bulk(rxvq->mpool, pkts,
 				free_cnt)) {
-				error = virtqueue_enqueue_refill_inorder(vq,
+				if (vtpci_packed_queue(vq->hw))
+					error = virtqueue_enqueue_refill_inorder_pq(vq,
+						pkts,
+						free_cnt);
+				else
+					error = virtqueue_enqueue_refill_inorder(vq,
 						pkts,
 						free_cnt);
 				if (unlikely(error)) {
@@ -1043,7 +1167,8 @@ virtio_dev_rx_queue_setup_finish(struct rte_eth_dev *dev, uint16_t queue_idx)
 			}
 
 			nbufs += free_cnt;
-			vq_update_avail_idx(vq);
+			if (!vtpci_packed_queue(vq->hw))
+				vq_update_avail_idx(vq);
 		}
 	} else {
 		while (!virtqueue_full(vq)) {
@@ -1149,7 +1274,10 @@ virtio_discard_rxbuf(struct virtqueue *vq, struct rte_mbuf *m)
 	 * Requeue the discarded mbuf. This should always be
 	 * successful since it was just dequeued.
 	 */
-	error = virtqueue_enqueue_recv_refill(vq, m);
+	if (vtpci_packed_queue(vq->hw))
+		error = virtqueue_enqueue_recv_refill_packed(vq, m);
+	else
+		error = virtqueue_enqueue_recv_refill(vq, m);
 
 	if (unlikely(error)) {
 		RTE_LOG(ERR, PMD, "cannot requeue discarded mbuf");
@@ -1162,7 +1290,10 @@ virtio_discard_rxbuf_inorder(struct virtqueue *vq, struct rte_mbuf *m)
 {
 	int error;
 
-	error = virtqueue_enqueue_refill_inorder(vq, &m, 1);
+	if (vtpci_packed_queue(vq->hw))
+		error = virtqueue_enqueue_refill_inorder_pq(vq, &m, 1);
+	else
+		error = virtqueue_enqueue_refill_inorder(vq, &m, 1);
 	if (unlikely(error)) {
 		RTE_LOG(ERR, PMD, "cannot requeue discarded mbuf");
 		rte_pktmbuf_free(m);
@@ -1515,7 +1646,10 @@ virtio_recv_mergeable_pkts_inorder(void *rx_queue,
 	if (unlikely(hw->started == 0))
 		return nb_rx;
 
-	nb_used = VIRTQUEUE_NUSED(vq);
+	if (!vtpci_packed_queue(hw))
+		nb_used = VIRTQUEUE_NUSED(vq);
+	else
+		nb_used = nb_pkts;
 	nb_used = RTE_MIN(nb_used, nb_pkts);
 	nb_used = RTE_MIN(nb_used, VIRTIO_MBUF_BURST_SZ);
 
@@ -1528,7 +1662,10 @@ virtio_recv_mergeable_pkts_inorder(void *rx_queue,
 	seg_res = 0;
 	hdr_size = hw->vtnet_hdr_size;
 
-	num = virtqueue_dequeue_rx_inorder(vq, rcv_pkts, len, nb_used);
+	if (vtpci_packed_queue(hw))
+		num = virtqueue_dequeue_rx_inorder_pq(vq, rcv_pkts, len, nb_used);
+	else
+		num = virtqueue_dequeue_rx_inorder(vq, rcv_pkts, len, nb_used);
 
 	for (i = 0; i < num; i++) {
 		struct virtio_net_hdr_mrg_rxbuf *header;
@@ -1610,8 +1747,12 @@ virtio_recv_mergeable_pkts_inorder(void *rx_queue,
 
 		prev = rcv_pkts[nb_rx];
 		if (likely(VIRTQUEUE_NUSED(vq) >= rcv_cnt)) {
-			num = virtqueue_dequeue_rx_inorder(vq, rcv_pkts, len,
-							   rcv_cnt);
+			if (vtpci_packed_queue(vq->hw))
+				num = virtqueue_dequeue_rx_inorder_pq(vq, rcv_pkts, len,
+							   	rcv_cnt);
+			else
+				num = virtqueue_dequeue_rx_inorder(vq, rcv_pkts, len,
+							   	rcv_cnt);
 			uint16_t extra_idx = 0;
 
 			rcv_cnt = num;
@@ -1652,7 +1793,11 @@ virtio_recv_mergeable_pkts_inorder(void *rx_queue,
 		struct rte_mbuf *new_pkts[free_cnt];
 
 		if (!rte_pktmbuf_alloc_bulk(rxvq->mpool, new_pkts, free_cnt)) {
-			error = virtqueue_enqueue_refill_inorder(vq, new_pkts,
+			if (vtpci_packed_queue(vq->hw))
+				error = virtqueue_enqueue_refill_inorder_pq(vq, new_pkts,
+					free_cnt);
+			else
+				error = virtqueue_enqueue_refill_inorder(vq, new_pkts,
 					free_cnt);
 			if (unlikely(error)) {
 				for (i = 0; i < free_cnt; i++)
@@ -1667,11 +1812,18 @@ virtio_recv_mergeable_pkts_inorder(void *rx_queue,
 	}
 
 	if (likely(nb_enqueued)) {
-		vq_update_avail_idx(vq);
+		if (vtpci_packed_queue(vq->hw)) {
+			if (unlikely(virtqueue_kick_prepare_packed(vq))) {
+				virtqueue_notify(vq);
+				PMD_RX_LOG(DEBUG, "Notified");
+			}
+		} else {
+			vq_update_avail_idx(vq);
 
-		if (unlikely(virtqueue_kick_prepare(vq))) {
-			virtqueue_notify(vq);
-			PMD_RX_LOG(DEBUG, "Notified");
+			if (unlikely(virtqueue_kick_prepare(vq))) {
+				virtqueue_notify(vq);
+				PMD_RX_LOG(DEBUG, "Notified");
+			}
 		}
 	}
 
@@ -2233,7 +2385,7 @@ virtio_xmit_pkts_inorder_pq(void *tx_queue,
 		}
 
 		if (nb_inorder_pkts) {
-			virtqueue_enqueue_xmit_inorder(txvq, inorder_pkts,
+			virtqueue_enqueue_xmit_inorder_pq(txvq, inorder_pkts,
 							nb_inorder_pkts);
 			nb_inorder_pkts = 0;
 		}
@@ -2270,7 +2422,6 @@ virtio_xmit_pkts_inorder_pq(void *tx_queue,
 	txvq->stats.packets += nb_tx;
 
 	if (likely(nb_tx)) {
-
 		if (unlikely(virtqueue_kick_prepare_packed(vq))) {
 			virtqueue_notify(vq);
 			PMD_TX_LOG(DEBUG, "Notified backend after xmit");
