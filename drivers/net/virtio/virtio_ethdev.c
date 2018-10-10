@@ -1419,7 +1419,9 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 	struct virtio_hw *hw = eth_dev->data->dev_private;
 
 	if (vtpci_packed_queue(hw)) {
-		if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF)) {
+		if(hw->use_inorder_rx) {
+			eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts_inorder;
+		} else if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF)) {
 			eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts;
 		} else {
 		eth_dev->rx_pkt_burst = &virtio_recv_pkts_packed;

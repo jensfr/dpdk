@@ -76,13 +76,24 @@ virtqueue_rxvq_flush(struct virtqueue *vq)
 		}
 		while (desc_is_used(&descs[i], &vq->vq_ring) &&
 			i < size) {
-			dxp = &vq->vq_descx[descs[i].index];
-			if (dxp->cookie != NULL) {
-				rte_pktmbuf_free(dxp->cookie);
-				dxp->cookie = NULL;
+			if (hw->use_inorder_rx) {
+				desc_idx = (uint16_t)descs[i].index;
+				dxp = &vq->vq_descx[desc_idx];
+				if (dxp->cookie != NULL) {
+					rte_pktmbuf_free(dxp->cookie);
+					dxp->cookie = NULL;
+				}
+				vq_ring_free_inorder_pq(vq, desc_idx, 1);
+				i++;
+			} else {
+				dxp = &vq->vq_descx[descs[i].index];
+				if (dxp->cookie != NULL) {
+					rte_pktmbuf_free(dxp->cookie);
+					dxp->cookie = NULL;
+				}
+				vq_ring_free_chain_packed(vq, i);
+				i = dxp->next;
 			}
-			vq_ring_free_chain_packed(vq, i);
-			i = dxp->next;
 			vq->vq_used_cons_idx++;
 		}
 		return;
