@@ -73,7 +73,7 @@ virtqueue_rxvq_flush(struct virtqueue *vq)
 			PMD_INIT_LOG(ERR, "vq_used_cons_idx out of range, %d", vq->vq_used_cons_idx);
 			return;
 		}
-		while (desc_is_used(&descs[i], &vq->vq_ring) &&
+		while (desc_is_used(&descs[i], vq) &&
 			i < size) {
 			if (hw->use_inorder_rx) {
 				desc_idx = (uint16_t)descs[i].index;

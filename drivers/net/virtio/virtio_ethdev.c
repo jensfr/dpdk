@@ -160,14 +160,14 @@ virtio_pq_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
 	 * One RX packet for ACK.
 	 */
 	head = vq->vq_avail_idx;
-	wrap_counter = vq->vq_ring.avail_wrap_counter;
+	wrap_counter = vq->avail_wrap_counter;
 	desc[head].flags = VRING_DESC_F_NEXT;
 	desc[head].addr = cvq->virtio_net_hdr_mem;
 	desc[head].len = sizeof(struct virtio_net_ctrl_hdr);
 	vq->vq_free_cnt--;
 	if (++vq->vq_avail_idx >= vq->vq_nentries) {
 		vq->vq_avail_idx -= vq->vq_nentries;
-		vq->vq_ring.avail_wrap_counter ^= 1;
+		vq->avail_wrap_counter ^= 1;
 	}
 
 	for (k = 0; k < pkt_num; k++) {
@@ -179,12 +179,12 @@ virtio_pq_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
 		sum += dlen[k];
 		vq->vq_free_cnt--;
 		_set_desc_avail(&desc[vq->vq_avail_idx],
-				vq->vq_ring.avail_wrap_counter);
+				vq->avail_wrap_counter);
 		rte_smp_wmb();
 		vq->vq_free_cnt--;
 		if (++vq->vq_avail_idx >= vq->vq_nentries) {
 			vq->vq_avail_idx -= vq->vq_nentries;
-			vq->vq_ring.avail_wrap_counter ^= 1;
+			vq->avail_wrap_counter ^= 1;
 		}
 	}
 
@@ -194,14 +194,14 @@ virtio_pq_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
 	desc[vq->vq_avail_idx].len = sizeof(ctrl->status);
 	desc[vq->vq_avail_idx].flags = VRING_DESC_F_WRITE;
 	_set_desc_avail(&desc[vq->vq_avail_idx],
-			vq->vq_ring.avail_wrap_counter);
+			vq->avail_wrap_counter);
 	_set_desc_avail(&desc[head], wrap_counter);
 	rte_smp_wmb();
 
 	vq->vq_free_cnt--;
 	if (++vq->vq_avail_idx >= vq->vq_nentries) {
 		vq->vq_avail_idx -= vq->vq_nentries;
-		vq->vq_ring.avail_wrap_counter ^= 1;
+		vq->avail_wrap_counter ^= 1;
 	}
 
 	virtqueue_notify(vq);
@@ -213,11 +213,11 @@ virtio_pq_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
 	} while (!_desc_is_used(&desc[head]));
 
 	/* now get used descriptors */
-	while(desc_is_used(&desc[vq->vq_used_cons_idx], &vq->vq_ring)) {
+	while(desc_is_used(&desc[vq->vq_used_cons_idx], vq)) {
 		vq->vq_free_cnt++;
 		if (++vq->vq_used_cons_idx >= vq->vq_nentries) {
 			vq->vq_used_cons_idx -= vq->vq_nentries;
-			vq->vq_ring.used_wrap_counter ^= 1;
+			vq->used_wrap_counter ^= 1;
 		}
 	}
 
@@ -481,11 +481,11 @@ virtio_init_queue(struct rte_eth_dev *dev, uint16_t vtpci_queue_idx)
 	vq->vq_queue_index = vtpci_queue_idx;
 	vq->vq_nentries = vq_size;
 	if (vtpci_packed_queue(hw)) {
-		vq->vq_ring.avail_wrap_counter = 1;
-		vq->vq_ring.used_wrap_counter = 1;
-		vq->vq_ring.used_flags = 
-				VRING_DESC_F_USED(vq->vq_ring.used_wrap_counter) |
-				VRING_DESC_F_AVAIL(vq->vq_ring.used_wrap_counter);
+		vq->avail_wrap_counter = 1;
+		vq->used_wrap_counter = 1;
+		//vq->vq_ring.used_flags = 
+		//		VRING_DESC_F_USED(vq->vq_ring.used_wrap_counter) |
+		//		VRING_DESC_F_AVAIL(vq->vq_ring.used_wrap_counter);
 	}
 
 	/*

@@ -78,9 +78,6 @@ struct vring_packed_desc_event {
 
 struct vring {
 	unsigned int num;
-	unsigned int avail_wrap_counter;
-	unsigned int used_wrap_counter;
-	unsigned int used_flags;
 	union {
 		struct vring_desc_packed *desc_packed;
 		struct vring_desc *desc;
@@ -94,47 +91,6 @@ struct vring {
 		struct vring_packed_desc_event *device_event;
 	};
 };
-
-static inline void
-_set_desc_avail(struct vring_desc_packed *desc, int wrap_counter)
-{
-	desc->flags |= VRING_DESC_F_AVAIL(wrap_counter) |
-		       VRING_DESC_F_USED(!wrap_counter);
-}
-
-static inline void
-set_desc_avail(struct vring *vr, struct vring_desc_packed *desc)
-{
-	_set_desc_avail(desc, vr->avail_wrap_counter);
-}
-
-static inline int
-_desc_is_used(struct vring_desc_packed *desc)
-{
-	uint16_t used, avail;
-
-	used = !!(desc->flags & VRING_DESC_F_USED(1));
-	avail = !!(desc->flags & VRING_DESC_F_AVAIL(1));
-
-	return used == avail;
-
-}
-
-static inline int
-desc_is_used(struct vring_desc_packed *desc, struct vring *vr)
-{
-	uint16_t used;
-
-	used = !!(desc->flags & VRING_DESC_F_USED(1));
-
-	return _desc_is_used(desc) && used == vr->used_wrap_counter;
-}
-
-static inline int
-__desc_is_used(uint16_t desc_flags, struct vring *vr)
-{
-	return (!!(desc_flags & vr->used_flags)) == vr->used_wrap_counter;
-}
 
 /* The standard layout for the ring is a continuous chunk of memory which
  * looks like this.  We assume num is a power of 2.

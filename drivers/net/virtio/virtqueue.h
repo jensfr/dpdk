@@ -177,7 +177,9 @@ struct virtqueue {
 	uint16_t vq_free_cnt;  /**< num of desc available */
 	uint16_t vq_avail_idx; /**< sync until needed */
 	uint16_t vq_free_thresh; /**< free threshold */
-
+	unsigned int avail_wrap_counter;
+	unsigned int used_wrap_counter;
+			
 	void *vq_ring_virt_mem;  /**< linear address of vring*/
 	unsigned int vq_ring_size;
 
@@ -251,12 +253,54 @@ struct virtio_tx_region {
 	};
 };
 
+static inline void
+_set_desc_avail(struct vring_desc_packed *desc, unsigned int wrap_counter)
+{
+	desc->flags |= VRING_DESC_F_AVAIL(wrap_counter) |
+		       VRING_DESC_F_USED(!wrap_counter);
+}
+
+static inline void
+set_desc_avail(struct virtqueue *vq, struct vring_desc_packed *desc)
+{
+	_set_desc_avail(desc, vq->avail_wrap_counter);
+}
+
+static inline int
+_desc_is_used(struct vring_desc_packed *desc)
+{
+	uint16_t used, avail;
+
+	used = !!(desc->flags & VRING_DESC_F_USED(1));
+	avail = !!(desc->flags & VRING_DESC_F_AVAIL(1));
+
+	return used == avail;
+
+}
+
+static inline int
+desc_is_used(struct vring_desc_packed *desc, struct virtqueue *vq)
+{
+	uint16_t used;
+
+	used = !!(desc->flags & VRING_DESC_F_USED(1));
+
+	return _desc_is_used(desc) && used == vq->used_wrap_counter;
+}
+
+static inline int
+__desc_is_used(uint16_t desc_flags, struct virtqueue *vq)
+{
+	return (!!(desc_flags & VRING_DESC_F_USED(1))) == vq->used_wrap_counter;
+}
+
+
 static inline uint16_t
 update_pq_avail_index(struct virtqueue *vq)
 {
 	if (++vq->vq_avail_idx >= vq->vq_nentries) {
 		vq->vq_avail_idx = 0;
-		vq->vq_ring.avail_wrap_counter ^= 1;
+		vq->avail_wrap_counter ^= 1;
 	}
 
 	return vq->vq_avail_idx;
