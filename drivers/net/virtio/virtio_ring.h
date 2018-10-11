@@ -120,11 +120,16 @@ _desc_is_used(struct vring_desc_packed *desc)
 static inline int
 desc_is_used(struct vring_desc_packed *desc, struct vring *vr)
 {
-	uint16_t used;
+	uint16_t used, flags;
+	bool is_used;
 
-	used = !!(desc->flags & VRING_DESC_F_USED(1));
+	rte_smp_mb();
+	flags = desc->flags;
+	used = !!(flags & VRING_DESC_F_USED(1));
+	is_used = _desc_is_used(desc) && used == vr->used_wrap_counter;
+	rte_smp_rmb();
 
-	return _desc_is_used(desc) && used == vr->used_wrap_counter;
+	return is_used;
 }
 
 /* The standard layout for the ring is a continuous chunk of memory which
