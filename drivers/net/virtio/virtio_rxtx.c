@@ -570,6 +570,7 @@ virtqueue_enqueue_recv_refill_packed(struct virtqueue *vq, struct rte_mbuf *cook
 	struct vring_desc_packed *start_dp;
 	uint16_t needed = 1;
 	uint16_t head_idx, idx;
+	uint16_t flags;
 
 	if (unlikely(vq->vq_free_cnt == 0))
 		return -ENOSPC;
@@ -591,19 +592,21 @@ virtqueue_enqueue_recv_refill_packed(struct virtqueue *vq, struct rte_mbuf *cook
 		RTE_PKTMBUF_HEADROOM - hw->vtnet_hdr_size;
 	start_dp[idx].len =
 		cookie->buf_len - RTE_PKTMBUF_HEADROOM + hw->vtnet_hdr_size;
-	start_dp[idx].flags = VRING_DESC_F_WRITE;
+	flags = VRING_DESC_F_WRITE;
+	flags |= VRING_DESC_F_AVAIL(vq->vq_ring.avail_wrap_counter) |
+		 VRING_DESC_F_USED(!vq->vq_ring.avail_wrap_counter); 
+	rte_smp_mb();
+	start_dp[idx].flags = flags;
 	idx = dxp->next;
 	vq->vq_desc_head_idx = idx;
 	if (vq->vq_desc_head_idx == VQ_RING_DESC_CHAIN_END)
 		vq->vq_desc_tail_idx = idx;
 	vq->vq_free_cnt = (uint16_t)(vq->vq_free_cnt - needed);
 
-	set_desc_avail(&vq->vq_ring, &vq->vq_ring.desc_packed[head_idx]);
 	if (++vq->vq_avail_idx >= vq->vq_nentries) {
 		vq->vq_avail_idx -= vq->vq_nentries;
 		vq->vq_ring.avail_wrap_counter ^= 1;
 	}
-	rte_smp_wmb();
 
 	return 0;
 }
