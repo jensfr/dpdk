@@ -891,18 +891,20 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 	}
 
 	virtqueue_xmit_offload(hdr, cookie, vq->hw->has_tx_offload);
-
+	
 	do {
+		uint16_t flags;
 		if (idx >= vq->vq_nentries) {
 			idx = 0;
 			vq->vq_ring.avail_wrap_counter ^= 1;
 		}
 		start_dp[idx].addr  = VIRTIO_MBUF_DATA_DMA_ADDR(cookie, vq);
 		start_dp[idx].len   = cookie->data_len;
-		start_dp[idx].flags = cookie->next ? VRING_DESC_F_NEXT : 0;
-		start_dp[idx].flags |=
-			VRING_DESC_F_AVAIL(vq->vq_ring.avail_wrap_counter) |
-			VRING_DESC_F_USED(!vq->vq_ring.avail_wrap_counter);
+		flags = cookie->next ? VRING_DESC_F_NEXT : 0;
+		flags |= VRING_DESC_F_AVAIL(vq->vq_ring.avail_wrap_counter) |
+			 VRING_DESC_F_USED(!vq->vq_ring.avail_wrap_counter);
+		rte_smp_mb();
+		start_dp[idx].flags = flags;
 		if (use_indirect) {
 			if (++idx >= (seg_num + 1))
 				break;
