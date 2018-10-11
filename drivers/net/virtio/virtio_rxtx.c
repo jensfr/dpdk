@@ -245,9 +245,6 @@ virtqueue_dequeue_rx_inorder_pq(struct virtqueue *vq,
 		if (++vq->vq_used_cons_idx >= vq->vq_nentries) {
 			vq->vq_used_cons_idx -= vq->vq_nentries;
 			vq->vq_ring.used_wrap_counter ^= 1;
-			vq->vq_ring.used_flags = 
-					VRING_DESC_F_USED(vq->vq_ring.used_wrap_counter) |
-					VRING_DESC_F_AVAIL(vq->vq_ring.used_wrap_counter);
 		}
 		vq->vq_descx[used_idx].cookie = NULL;
 	}
@@ -460,7 +457,7 @@ virtqueue_enqueue_refill_inorder_pq(struct virtqueue *vq,
 		start_dp[idx].flags |=
 				VRING_DESC_F_AVAIL(vq->vq_ring.avail_wrap_counter) |
 			       VRING_DESC_F_USED(!vq->vq_ring.avail_wrap_counter);
-		//set_desc_avail(&vq->vq_ring, &vq->vq_ring.desc_packed[head_idx]);
+		set_desc_avail(&vq->vq_ring, &vq->vq_ring.desc_packed[head_idx]);
 		//rte_smp_wmb();
 		if (++head_idx >= vq->vq_nentries) {
 			head_idx -= vq->vq_nentries;
