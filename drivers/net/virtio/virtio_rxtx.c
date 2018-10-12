@@ -907,6 +907,10 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 				break;
 		} else {
 			dxp = &vq->vq_descx[idx];
+			if (idx == (vq->vq_nentries -1) && dxp->next == 0) {
+				vq->vq_ring.avail_wrap_counter ^= 1;
+				fprintf(stderr, "do while 2, awc wrappted to %d\n", vq->vq_ring.avail_wrap_counter);
+			}
 			idx = dxp->next;
 		}
 	} while ((cookie = cookie->next) != NULL);
@@ -921,18 +925,22 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 		head_dp->flags = VRING_DESC_F_NEXT |
 			VRING_DESC_F_AVAIL(wrap_counter) |
 			VRING_DESC_F_USED(!wrap_counter);
-	rte_smp_mb();
 
 	if (!in_order) {
 		if (vq->vq_desc_head_idx == VQ_RING_DESC_CHAIN_END)
 			vq->vq_desc_tail_idx = idx;
 	}
 	if (idx >= vq->vq_nentries) {
-		idx = 0;
+	//	prev = idx;
+		if (idx==VQ_RING_DESC_CHAIN_END)
+			idx = 0;
+		else 
+			idx -= vq->vq_nentries;
 		vq->vq_ring.avail_wrap_counter ^= 1;
+	//	fprintf(stderr, "after do while, awc wrappted to %d, prev %d, vq_avail_idx = %d, idx = %d\n", vq->vq_ring.avail_wrap_counter, prev, vq->vq_avail_idx, idx);
 	}
 	vq->vq_desc_head_idx = idx;
-	vq->vq_avail_idx = idx;
+	vq->vq_avail_idx = head_id;
 
 }
 
