@@ -592,7 +592,7 @@ virtqueue_enqueue_recv_refill_packed(struct virtqueue *vq, struct rte_mbuf *cook
 	flags = VRING_DESC_F_WRITE;
 	flags |= VRING_DESC_F_AVAIL(vq->vq_ring.avail_wrap_counter) |
 		 VRING_DESC_F_USED(!vq->vq_ring.avail_wrap_counter); 
-	rte_smp_mb();
+	rte_smp_wmb();
 	start_dp[idx].flags = flags;
 	idx = dxp->next;
 	vq->vq_desc_head_idx = idx;
@@ -600,8 +600,9 @@ virtqueue_enqueue_recv_refill_packed(struct virtqueue *vq, struct rte_mbuf *cook
 		vq->vq_desc_tail_idx = idx;
 	vq->vq_free_cnt = (uint16_t)(vq->vq_free_cnt - needed);
 
-	if (++vq->vq_avail_idx >= vq->vq_nentries) {
-		vq->vq_avail_idx -= vq->vq_nentries;
+	vq->vq_avail_idx += needed;
+	if (vq->vq_avail_idx >= vq->vq_nentries) {
+		vq->vq_avail_idx = 0;
 		vq->vq_ring.avail_wrap_counter ^= 1;
 	}
 
@@ -1846,7 +1847,6 @@ virtio_recv_mergeable_pkts(void *rx_queue,
 	seg_res = 0;
 	hdr_size = hw->vtnet_hdr_size;
 
-	vq->vq_used_idx = vq->vq_used_cons_idx;
 
 	while (i < nb_used) {
 		struct virtio_net_hdr_mrg_rxbuf *header;
