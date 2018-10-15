@@ -930,18 +930,15 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 		if (vq->vq_desc_head_idx == VQ_RING_DESC_CHAIN_END)
 			vq->vq_desc_tail_idx = idx;
 	}
-	if (idx >= vq->vq_nentries) {
-	//	prev = idx;
-		if (idx==VQ_RING_DESC_CHAIN_END)
-			idx = 0;
-		else 
-			idx -= vq->vq_nentries;
+	vq->vq_avail_idx += needed;
+	if (idx==VQ_RING_DESC_CHAIN_END)
+		idx = vq->vq_avail_idx;
+	if (vq->vq_avail_idx >= vq->vq_nentries) {
+		vq->vq_avail_idx -= vq->vq_nentries;
+		idx = vq->vq_avail_idx;
 		vq->vq_ring.avail_wrap_counter ^= 1;
-	//	fprintf(stderr, "after do while, awc wrappted to %d, prev %d, vq_avail_idx = %d, idx = %d\n", vq->vq_ring.avail_wrap_counter, prev, vq->vq_avail_idx, idx);
 	}
 	vq->vq_desc_head_idx = idx;
-	vq->vq_avail_idx = head_id;
-
 }
 
 
