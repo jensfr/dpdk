@@ -270,6 +270,34 @@ virtio_xmit_cleanup_packed(struct virtqueue *vq)
 }
 
 static void
+_virtio_xmit_cleanup_packed(struct virtqueue *vq, uint16_t num)
+{
+	uint16_t used_idx, id;
+	uint16_t size = vq->vq_nentries;
+	struct vring_desc_packed *desc = vq->vq_ring.desc_packed;
+	struct vq_desc_extra *dxp;
+	int i;
+
+
+	used_idx = vq->vq_used_cons_idx;
+	for(i=0; i < num; i++) {
+		used_idx = vq->vq_used_cons_idx;
+		id = desc[used_idx].index;
+		dxp = &vq->vq_descx[id];
+		if (++vq->vq_used_cons_idx >= size) {
+			vq->vq_used_cons_idx -= size;
+			vq->vq_ring.used_wrap_counter ^= 1;
+		}
+		vq_ring_free_chain_packed(vq, id);
+		if (dxp->cookie != NULL) {
+			rte_pktmbuf_free(dxp->cookie);
+			dxp->cookie = NULL;
+		}
+		used_idx = vq->vq_used_cons_idx;
+	}
+}
+
+static void
 virtio_xmit_cleanup(struct virtqueue *vq, uint16_t num)
 {
 	uint16_t i, used_idx, desc_idx;
@@ -1821,10 +1849,12 @@ virtio_xmit_pkts_packed(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_p
 		if (unlikely(need > 0)) {
 			virtio_rmb();
 			need = RTE_MIN(need, (int)nb_pkts);
-
-			virtio_xmit_cleanup_packed(vq);
+	
+			_virtio_xmit_cleanup_packed(vq, need);
 			need = slots - vq->vq_free_cnt;
 			if (unlikely(need > 0)) {
+				fprintf(stderr,
+					   "No free tx descriptors to transmit");
 				PMD_TX_LOG(ERR,
 					   "No free tx descriptors to transmit");
 				break;
@@ -1918,6 +1948,8 @@ virtio_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts)
 			virtio_xmit_cleanup(vq, need);
 			need = slots - vq->vq_free_cnt;
 			if (unlikely(need > 0)) {
+				fprintf(stderr,
+					   "No free tx descriptors to transmit");
 				PMD_TX_LOG(ERR,
 					   "No free tx descriptors to transmit");
 				break;
