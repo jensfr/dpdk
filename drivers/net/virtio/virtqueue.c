@@ -68,7 +68,6 @@ virtqueue_rxvq_flush(struct virtqueue *vq)
 	uint16_t size = vq->vq_nentries;
 
 	if (vtpci_packed_queue(vq->hw)) {
-		return;
 		i = vq->vq_used_cons_idx;
 		if (i > size) {
 			PMD_INIT_LOG(ERR, "vq_used_cons_idx out of range, %d", vq->vq_used_cons_idx);
@@ -81,7 +80,7 @@ virtqueue_rxvq_flush(struct virtqueue *vq)
 				rte_pktmbuf_free(dxp->cookie);
 				dxp->cookie = NULL;
 			}
-			vq_ring_free_chain_packed(vq, i);
+			vq_ring_free_chain_packed(vq, descs[i].index, i);
 			i = dxp->next;
 			vq->vq_used_cons_idx++;
 		}
