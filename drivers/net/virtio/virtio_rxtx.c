@@ -155,9 +155,9 @@ virtqueue_dequeue_burst_rx_packed(struct virtqueue *vq,
 		rx_pkts[i] = cookie;
 		vq_ring_free_chain_packed(vq, id);
 
-
-		if (++vq->vq_used_cons_idx >= vq->vq_nentries) {
-			vq->vq_used_cons_idx = 0;
+		vq->vq_used_cons_idx += vq->vq_descx[id].ndescs;
+		if (vq->vq_used_cons_idx >= vq->vq_nentries) {
+			vq->vq_used_cons_idx -= vq->vq_nentries;
 			vq->vq_ring.used_wrap_counter ^= 1;
 		}
 	}
@@ -282,6 +282,8 @@ _virtio_xmit_cleanup_packed(struct virtqueue *vq, uint16_t num)
 	used_idx = vq->vq_used_cons_idx;
 	for(i=0; i < num; i++) {
 		used_idx = vq->vq_used_cons_idx;
+		if (!desc_is_used(&desc[used_idx], &vq->vq_ring))
+			break;
 		id = desc[used_idx].index;
 		dxp = &vq->vq_descx[id];
 		if (++vq->vq_used_cons_idx >= size) {
@@ -650,9 +652,11 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 	uint16_t idx, head_id, head_flags;
 	uint16_t head_size = vq->hw->vtnet_hdr_size;
 	struct virtio_net_hdr *hdr;
+	uint16_t prev;
 
 	head_id = vq->vq_desc_head_idx;
 	idx = head_id;
+	prev = idx;
 	start_dp = vq->vq_ring.desc_packed;
 	dxp = &vq->vq_descx[idx];
 	dxp->ndescs = needed;
@@ -732,9 +736,12 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 			dxp = &vq->vq_descx[idx];
 			if (idx == (vq->vq_nentries -1) && dxp->next == 0)
 				vq->vq_ring.avail_wrap_counter ^= 1;
+			prev = idx;
 			idx = dxp->next;
 		}
 	} while ((cookie = cookie->next) != NULL);
+
+        start_dp[prev].index = head_id;
 
 	if (use_indirect)
 		idx = vq->vq_ring.desc_packed[head_id].index;
@@ -1851,6 +1858,7 @@ virtio_xmit_pkts_packed(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_p
 			need = RTE_MIN(need, (int)nb_pkts);
 	
 			_virtio_xmit_cleanup_packed(vq, need);
+			//virtio_xmit_cleanup_packed(vq);
 			need = slots - vq->vq_free_cnt;
 			if (unlikely(need > 0)) {
 				fprintf(stderr,

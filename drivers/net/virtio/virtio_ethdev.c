@@ -476,7 +476,7 @@ virtio_init_queue(struct rte_eth_dev *dev, uint16_t vtpci_queue_idx)
 	vq->vq_nentries = vq_size;
 	if (vtpci_packed_queue(hw)) {
 		vq->vq_ring.avail_wrap_counter = 1;
-		vq->vq_ring.used_wrap_counter = 1;
+		vq->vq_ring.used_wrap_counter = true;
 	}
 
 	/*

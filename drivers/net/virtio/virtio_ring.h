@@ -78,7 +78,7 @@ struct vring_packed_desc_event {
 struct vring {
 	unsigned int num;
 	unsigned int avail_wrap_counter;
-	unsigned int used_wrap_counter;
+	bool used_wrap_counter;
 	union {
 		struct vring_desc_packed *desc_packed;
 		struct vring_desc *desc;
