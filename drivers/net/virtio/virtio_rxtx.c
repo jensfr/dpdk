@@ -244,6 +244,7 @@ virtqueue_dequeue_rx_inorder(struct virtqueue *vq,
 #endif
 
 /* Cleanup from completed transmits. */
+
 static void
 virtio_xmit_cleanup_packed(struct virtqueue *vq)
 {
@@ -1621,7 +1622,7 @@ virtio_recv_mergeable_pkts(void *rx_queue,
 		return nb_rx;
 
 	if (vtpci_packed_queue(vq->hw))
-		nb_used = VIRTIO_MBUF_BURST_SZ;
+		nb_used = 8;
 	else
 		nb_used = VIRTQUEUE_NUSED(vq);
 

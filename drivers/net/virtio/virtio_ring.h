@@ -109,17 +109,19 @@ set_desc_avail(struct vring *vr, struct vring_desc_packed *desc)
 static inline int
 desc_is_used(struct vring_desc_packed *desc, struct vring *vr)
 {
-	uint16_t used, avail, flags;
-	bool is_used;
+	uint16_t flags;
+	uint8_t used; //, avail;
+	//bool is_used;
 
-	rte_smp_mb();
+	//rte_smp_mb();
 	flags = desc->flags;
-	avail = !!(flags & VRING_DESC_F_AVAIL(1));
+	//avail = !!(flags & VRING_DESC_F_AVAIL(1));
 	used = !!(flags & VRING_DESC_F_USED(1));
-	is_used = used == avail && used == vr->used_wrap_counter;
-	rte_smp_rmb();
+	//is_used = used == avail && used == vr->used_wrap_counter;
+	//rte_smp_rmb();
 
-	return is_used;
+	//return used == avail && used == vr->used_wrap_counter;
+	return used == vr->used_wrap_counter;
 }
 
 /* The standard layout for the ring is a continuous chunk of memory which
