@@ -474,6 +474,7 @@ virtio_user_dev_init(struct virtio_user_dev *dev, char *path, int queues,
 		 * so if necessary, we just claim to support CQ
 		 */
 		dev->frontend_features |= (1ull << VIRTIO_NET_F_CTRL_VQ);
+		dev->unsupported_features |= (1ULL << VIRTIO_F_RING_PACKED);
 	} else {
 		dev->unsupported_features |= (1ull << VIRTIO_NET_F_CTRL_VQ);
 		/* Also disable features that depend on VIRTIO_NET_F_CTRL_VQ */
