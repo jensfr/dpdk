@@ -270,12 +270,13 @@ set_desc_avail(struct virtqueue *vq, struct vring_desc_packed *desc)
 static inline int
 desc_is_used(struct vring_desc_packed *desc, struct virtqueue *vq)
 {
-	uint16_t used, flags;
+	uint16_t used, avail, flags;
 
 	flags = desc->flags;
 	used = !!(flags & VRING_DESC_F_USED(1));
+	avail = !!(flags & VRING_DESC_F_AVAIL(1));
 
-	return used == vq->used_wrap_counter;
+	return avail == used && used == vq->used_wrap_counter;
 }
 
 

@@ -631,7 +631,7 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 	idx = vq->vq_avail_idx;
 	prev = idx;
 	start_dp = vq->ring_packed.desc_packed;
-	dxp = &vq->vq_descx[idx];
+	dxp = &vq->vq_descx[head_id];
 	dxp->ndescs = needed;
 
 	head_dp = &vq->ring_packed.desc_packed[idx];
@@ -683,7 +683,8 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 			RTE_PTR_DIFF(&txr[idx].tx_hdr, txr);
 		start_dp[idx].len   = vq->hw->vtnet_hdr_size;
 		hdr = (struct virtio_net_hdr *)&txr[idx].tx_hdr;
-		idx = dxp->next;
+		//idx = dxp->next;
+		idx++;
 	}
 
 	virtqueue_xmit_offload(hdr, cookie, vq->hw->has_tx_offload);
@@ -691,7 +692,7 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 	do {
 		uint16_t flags;
 		if (idx >= vq->vq_nentries) {
-			idx = 0;
+			idx -= vq->vq_nentries;
 			vq->avail_wrap_counter ^= 1;
 		}
 		start_dp[idx].addr  = VIRTIO_MBUF_DATA_DMA_ADDR(cookie, vq);
@@ -706,11 +707,14 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 			if (++idx >= (seg_num + 1))
 				break;
 		} else {
-			dxp = &vq->vq_descx[idx];
-			if (idx == (vq->vq_nentries -1) && dxp->next == 0)
-				vq->avail_wrap_counter ^= 1;
+			//dxp = &vq->vq_descx[start_dp[idx].index];
 			prev = idx;
-			idx = dxp->next;
+			idx++;
+			//if (idx == (vq->vq_nentries -1) && dxp->next == 0)
+			if (idx >= vq->vq_nentries) {
+				idx -= vq->vq_nentries;
+				vq->avail_wrap_counter ^= 1;
+			}
 		}
 	} while ((cookie = cookie->next) != NULL);
 
@@ -721,19 +725,20 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 
 	vq->vq_free_cnt = (uint16_t)(vq->vq_free_cnt - needed);
 
+	vq->vq_desc_head_idx = start_dp[idx].index;
 	if (!in_order) {
 		if (vq->vq_desc_head_idx == VQ_RING_DESC_CHAIN_END)
-			vq->vq_desc_tail_idx = idx;
+			vq->vq_desc_tail_idx = start_dp[idx].index;
 	}
-	vq->vq_avail_idx += needed;
-	if (idx==VQ_RING_DESC_CHAIN_END)
-		idx = vq->vq_avail_idx;
+	//vq->vq_avail_idx += needed;
+	vq->vq_avail_idx = idx;
+	//if (dxp->next==VQ_RING_DESC_CHAIN_END)
+	//	idx = vq->vq_avail_idx;
 	if (vq->vq_avail_idx >= vq->vq_nentries) {
 		vq->vq_avail_idx -= vq->vq_nentries;
 		idx = vq->vq_avail_idx;
 		vq->avail_wrap_counter ^= 1;
 	}
-	vq->vq_desc_head_idx = idx;
 
 	rte_smp_wmb();
 	head_dp->flags = head_flags;
