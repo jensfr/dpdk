@@ -170,6 +170,8 @@ struct virtqueue {
 	struct vring_packed ring_packed;  /**< vring keeping desc, used and avail */
 	bool avail_wrap_counter;
 	bool used_wrap_counter;
+	uint16_t event_flags_shadow;
+	uint16_t num_added;
 
 	/**
 	 * Last consumed descriptor in the used table,
@@ -307,10 +309,49 @@ vring_desc_init_split(struct vring_desc *dp, uint16_t n)
  * Tell the backend not to interrupt us.
  */
 static inline void
+virtqueue_disable_intr_packed(struct virtqueue *vq)
+{
+	uint16_t *event_flags = &vq->ring_packed.driver_event->desc_event_flags;	
+
+	if (*event_flags != RING_EVENT_FLAGS_DISABLE) {
+		*event_flags = RING_EVENT_FLAGS_DISABLE;	
+	}
+}
+
+
+/**
+ * Tell the backend not to interrupt us.
+ */
+static inline void
 virtqueue_disable_intr(struct virtqueue *vq)
 {
-	vq->vq_ring.avail->flags |= VRING_AVAIL_F_NO_INTERRUPT;
+	if (vtpci_packed_queue(vq->hw))
+		virtqueue_disable_intr_packed(vq);
+	else
+		vq->vq_ring.avail->flags |= VRING_AVAIL_F_NO_INTERRUPT;
 }
+
+/**
+ * Tell the backend to interrupt us.
+ */
+static inline void
+virtqueue_enable_intr_packed(struct virtqueue *vq)
+{
+	uint16_t *off_wrap = &vq->ring_packed.driver_event->desc_event_off_wrap;
+	uint16_t *event_flags = &vq->ring_packed.driver_event->desc_event_flags;
+	
+	*off_wrap = vq->vq_used_cons_idx |
+		((uint16_t)(vq->used_wrap_counter << 15)); 
+
+	if (vq->event_flags_shadow == RING_EVENT_FLAGS_DISABLE) {
+		virtio_wmb();
+		vq->event_flags_shadow = 
+			vtpci_with_feature(vq->hw, VIRTIO_RING_F_EVENT_IDX) ?
+				RING_EVENT_FLAGS_DESC : RING_EVENT_FLAGS_ENABLE;
+		*event_flags = vq->event_flags_shadow;
+	}
+}
+
 
 /**
  * Tell the backend to interrupt us.
@@ -318,7 +359,10 @@ virtqueue_disable_intr(struct virtqueue *vq)
 static inline void
 virtqueue_enable_intr(struct virtqueue *vq)
 {
-	vq->vq_ring.avail->flags &= (~VRING_AVAIL_F_NO_INTERRUPT);
+	if (vtpci_packed_queue(vq->hw))
+		virtqueue_enable_intr_packed(vq);
+	else
+		vq->vq_ring.avail->flags &= (~VRING_AVAIL_F_NO_INTERRUPT);
 }
 
 /**
@@ -390,8 +434,27 @@ virtqueue_kick_prepare(struct virtqueue *vq)
 static inline int
 virtqueue_kick_prepare_packed(struct virtqueue *vq)
 {
-	return vq->ring_packed.device_event->desc_event_flags !=
-		RING_EVENT_FLAGS_DISABLE;
+	uint16_t off_wrap, event_idx, new_idx, old, flags, wrap_counter;
+	uint32_t snapshot;
+
+	old = vq->vq_avail_idx - vq->num_added;
+	new_idx = vq->vq_avail_idx;
+	vq->num_added = 0;
+
+	virtio_mb();
+	snapshot = *(uint32_t *)vq->ring_packed.device_event;
+	off_wrap = snapshot & 0xffff;
+	flags = (snapshot >> 16) & 0x3; //FIXME hardcoded constant
+
+	wrap_counter = off_wrap >> 15;
+	event_idx = off_wrap & ~(1<<15); //FIXME
+	if (wrap_counter != vq->avail_wrap_counter)
+		event_idx -= vq->vq_nentries;
+
+	if (flags == RING_EVENT_FLAGS_DESC)
+		return vring_need_event(event_idx, new_idx, old);
+	else
+		return flags != RING_EVENT_FLAGS_DISABLE;
 }
 
 static inline void

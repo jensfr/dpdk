@@ -1764,6 +1764,8 @@ virtio_recv_mergeable_pkts(void *rx_queue,
 		nb_enqueued++;
 	}
 
+	vq->num_added = nb_enqueued;
+
 	if (likely(nb_enqueued)) {
 		if (likely(!vtpci_packed_queue(vq->hw))) {
 			vq_update_avail_idx(vq);
@@ -1858,6 +1860,7 @@ virtio_xmit_pkts_packed(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_p
 
 		txvq->stats.bytes += txm->pkt_len;
 		virtio_update_packet_stats(&txvq->stats, txm);
+		vq->num_added += slots;
 	}
 
 	txvq->stats.packets += nb_tx;
