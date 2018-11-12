@@ -400,15 +400,15 @@ virtio_init_vring(struct virtqueue *vq)
 	if (vtpci_packed_queue(vq->hw)) {
 		vring_init_packed(&vq->ring_packed, ring_mem, VIRTIO_PCI_VRING_ALIGN, size);
 		vring_desc_init_packed(vq, size);
+		virtqueue_disable_intr_packed(vq);
 	} else {
 		vring_init_split(vr, ring_mem, VIRTIO_PCI_VRING_ALIGN, size);
 		vring_desc_init_split(vr->desc, size);
+		/*
+		 * Disable device(host) interrupting guest
+		 */
+		virtqueue_disable_intr(vq);
 	}
-
-	/*
-	 * Disable device(host) interrupting guest
-	 */
-	virtqueue_disable_intr(vq);
 }
 
 static int
@@ -474,10 +474,12 @@ virtio_init_queue(struct rte_eth_dev *dev, uint16_t vtpci_queue_idx)
 	vq->hw = hw;
 	vq->vq_queue_index = vtpci_queue_idx;
 	vq->vq_nentries = vq_size;
+	vq->event_flags_shadow = 0;
 	if (vtpci_packed_queue(hw)) {
 		vq->avail_wrap_counter = 1;
 		vq->used_wrap_counter = 1;
 	}
+	vq->num_added = 0;
 
 	/*
 	 * Reserve a memzone for vring elements
