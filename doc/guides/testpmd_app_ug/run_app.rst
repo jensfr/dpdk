@@ -547,3 +547,13 @@ The commandline options are:
 
     Set the number of r/w accesses to be done in noisy neighbour simulation memory buffer to N.
     Only available with the noisy forwarding mode. The default value is 0.
+
+*   ``--noisy-read-packet-buffer=N``
+
+    Set the percentage of cache lines in the simulation memory buffer that should be read.
+    Only available with the noisy forwarding mode. The default value is 0.
+
+*   ``--noisy-write-packet-buffer=N``
+
+    Set the percentage of cache lines in the simulation memory buffer that should be written.
+    Only available with the noisy forwarding mode. The default value is 0.

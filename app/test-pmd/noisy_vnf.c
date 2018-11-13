@@ -92,6 +92,48 @@ sim_memory_lookups(struct noisy_config *ncf, uint16_t nb_pkts)
 	}
 }
 
+static inline void
+do_packet_read(struct rte_mbuf *pkt) {
+	uint64_t *data = rte_pktmbuf_mtod(pkt, uint64_t *);
+	uint64_t len = rte_pktmbuf_data_len(pkt);
+	uint64_t i = rte_rand();
+	uint64_t val;
+
+	val = data[i % (len / RTE_CACHE_LINE_SIZE)];
+	val++;
+}
+
+static inline void
+do_packet_write(struct rte_mbuf *pkt) {
+	uint64_t i = rte_rand();
+	uint64_t *data = rte_pktmbuf_mtod(pkt, uint64_t *);
+	uint64_t len = rte_pktmbuf_data_len(pkt);
+
+	data[i % (len / RTE_CACHE_LINE_SIZE)] = 0xABCDABCD;
+}
+
+/*
+ * Simulate packet processing
+ */
+static void
+sim_packet_processing(struct rte_mbuf **pkts, uint16_t nb_pkts)
+{
+        int reads = 0, writes = 0;
+	int i, j, nb_cl;
+
+	for(i = 0; i < nb_pkts; i++) {
+		nb_cl = (pkts[i])->buf_len / RTE_CACHE_LINE_SIZE;
+		if (noisy_read_packet_buffer > 0)
+			reads = (nb_cl/100) * noisy_read_packet_buffer;
+		if (noisy_write_packet_buffer > 0)
+			writes = (nb_cl/100) * noisy_write_packet_buffer;
+		for (j = 0; j < reads; j++)
+			do_packet_read(pkts[i]);
+		for (j = 0; j < writes; j++)
+			do_packet_write(pkts[i]);
+	}
+}
+
 static uint16_t
 do_retry(uint16_t nb_rx, uint16_t nb_tx, struct rte_mbuf **pkts,
 	 struct fwd_stream *fs)
@@ -160,6 +202,7 @@ pkt_burst_noisy_vnf(struct fwd_stream *fs)
 
 	if (!ncf->do_buffering) {
 		sim_memory_lookups(ncf, nb_rx);
+		sim_packet_processing(pkts_burst, nb_rx);
 		nb_tx = rte_eth_tx_burst(fs->tx_port, fs->tx_queue,
 				pkts_burst, nb_rx);
 		if (unlikely(nb_tx < nb_rx) && fs->retry_enabled)
@@ -192,6 +235,7 @@ pkt_burst_noisy_vnf(struct fwd_stream *fs)
 	}
 
 	sim_memory_lookups(ncf, nb_enqd);
+	sim_packet_processing(pkts_burst, nb_rx);
 
 flush:
 	if (ncf->do_flush) {

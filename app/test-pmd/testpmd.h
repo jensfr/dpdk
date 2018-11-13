@@ -403,6 +403,8 @@ extern uint64_t noisy_lkup_mem_sz;
 extern uint64_t noisy_lkup_num_writes;
 extern uint64_t noisy_lkup_num_reads;
 extern uint64_t noisy_lkup_num_reads_writes;
+extern uint64_t noisy_read_packet_buffer;
+extern uint64_t noisy_write_packet_buffer;
 
 extern uint8_t dcb_config;
 extern uint8_t dcb_test;

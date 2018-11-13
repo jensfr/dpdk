@@ -309,6 +309,18 @@ uint64_t noisy_lkup_num_reads;
 uint64_t noisy_lkup_num_reads_writes;
 
 /*
+ * Configurable value of percentage of cache lines
+ * read from packet buffer.
+ */
+uint64_t noisy_read_packet_buffer;
+
+/*
+ * Configurable value of percentage of cache lines
+ * written in packet buffer..
+ */
+uint64_t noisy_write_packet_buffer;
+
+/*
  * Receive Side Scaling (RSS) configuration.
  */
 uint64_t rss_hf = ETH_RSS_IP; /* RSS IP by default. */

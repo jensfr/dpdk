@@ -201,6 +201,8 @@ usage(char* progname)
 	printf("  --noisy-lkup-num-writes=N: do N random writes per packet\n");
 	printf("  --noisy-lkup-num-reads=N: do N random reads per packet\n");
 	printf("  --noisy-lkup-num-writes=N: do N random reads and writes per packet\n");
+	printf("  --noisy-read-packet-buf=N: read N percent of cache lines in packet buffern");
+	printf("  --noisy-write-packet-buf=N: write N percent of cache lines in packet buffer\n");
 }
 
 #ifdef RTE_LIBRTE_CMDLINE
@@ -649,6 +651,8 @@ launch_args_parse(int argc, char** argv)
 		{ "noisy-lkup-num-writes",	1, 0, 0 },
 		{ "noisy-lkup-num-reads",	1, 0, 0 },
 		{ "noisy-lkup-num-reads-writes", 1, 0, 0 },
+		{ "noisy-read-packet-buf", 1, 0, 0 },
+		{ "noisy-write-packet-buf", 1, 0, 0 },
 		{ 0, 0, 0, 0 },
 	};
 
@@ -1237,6 +1241,24 @@ launch_args_parse(int argc, char** argv)
 				else
 					rte_exit(EXIT_FAILURE,
 						 "noisy-lkup-num-reads-writes must be >= 0\n");
+			}
+			if (!strcmp(lgopts[opt_idx].name,
+				    "noisy-read-packet-buffer")) {
+				n = atoi(optarg);
+				if (n >= 0)
+					noisy_read_packet_buffer = n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "noisy-read-packet-buffer must be >= 0\n");
+			}
+			if (!strcmp(lgopts[opt_idx].name,
+				    "noisy-write-packet-buffer")) {
+				n = atoi(optarg);
+				if (n >= 0)
+					noisy_write_packet_buffer = n;
+				else
+					rte_exit(EXIT_FAILURE,
+						 "noisy-write-packet-buffer must be >= 0\n");
 			}
 			break;
 		case 'h':
