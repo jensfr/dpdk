@@ -1444,7 +1444,7 @@ set_rxtx_funcs(struct rte_eth_dev *eth_dev)
 
 	if (vtpci_packed_queue(hw)) {
 		if (vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF)) {
-			eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts;
+			eth_dev->rx_pkt_burst = &virtio_recv_mergeable_pkts_packed;
 		} else {
 			eth_dev->rx_pkt_burst = &virtio_recv_pkts_packed;
 		}
