@@ -474,10 +474,12 @@ virtio_init_queue(struct rte_eth_dev *dev, uint16_t vtpci_queue_idx)
 	vq->hw = hw;
 	vq->vq_queue_index = vtpci_queue_idx;
 	vq->vq_nentries = vq_size;
+	vq->event_flags_shadow = 0;
 	if (vtpci_packed_queue(hw)) {
 		vq->avail_wrap_counter = 1;
 		vq->used_wrap_counter = 1;
 	}
+	vq->num_added = 0;
 
 	/*
 	 * Reserve a memzone for vring elements
