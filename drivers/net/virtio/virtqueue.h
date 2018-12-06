@@ -172,6 +172,7 @@ struct virtqueue {
 	bool used_wrap_counter;
 	uint16_t event_flags_shadow;
 	uint16_t avail_used_flags;
+	uint16_t head_idx;
 
 	/**
 	 * Last consumed descriptor in the used table,

@@ -587,8 +587,8 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 	struct virtio_tx_region *txr = txvq->virtio_net_hdr_mz->addr;
 	struct vq_desc_extra *dxp;
 	struct virtqueue *vq = txvq->vq;
-	struct vring_packed_desc *start_dp, *head_dp;
-	uint16_t idx, id, head_idx, head_flags;
+	struct vring_packed_desc *start_dp;
+	uint16_t idx, id;
 	uint16_t head_size = vq->hw->vtnet_hdr_size;
 	struct virtio_net_hdr *hdr;
 	uint16_t prev;
@@ -599,14 +599,9 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 	dxp->ndescs = needed;
 	dxp->cookie = cookie;
 
-	head_idx = vq->vq_avail_idx;
-	idx = head_idx;
-	prev = head_idx;
+	idx = vq->vq_avail_idx;
+	prev = vq->vq_avail_idx;
 	start_dp = vq->ring_packed.desc_packed;
-
-	head_dp = &vq->ring_packed.desc_packed[idx];
-	head_flags = cookie->next ? VRING_DESC_F_NEXT: 0;
-	head_flags |= vq->avail_used_flags;
 
 	if (can_push) {
 		/* prepend cannot fail, checked by caller */
@@ -651,7 +646,7 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 
 		start_dp[idx].addr = VIRTIO_MBUF_DATA_DMA_ADDR(cookie, vq);
 		start_dp[idx].len  = cookie->data_len;
-		if (likely(idx != head_idx)) {
+		if (likely(idx != vq->head_idx)) {
 			flags = cookie->next ? VRING_DESC_F_NEXT : 0;
 			flags |= vq->avail_used_flags;
 			start_dp[idx].flags = flags;
@@ -676,9 +671,6 @@ virtqueue_enqueue_xmit_packed(struct virtnet_tx *txvq, struct rte_mbuf *cookie,
 		vq->vq_desc_tail_idx = VQ_RING_DESC_CHAIN_END;
 
 	vq->vq_avail_idx = idx;
-
-	rte_smp_wmb();
-	head_dp->flags = head_flags;
 }
 
 static inline void
@@ -1853,6 +1845,7 @@ virtio_xmit_pkts_packed(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_p
 	uint16_t hdr_size = hw->vtnet_hdr_size;
 	uint16_t nb_tx = 0;
 	int error;
+	uint16_t head_flags;
 
 	if (unlikely(hw->started == 0 && tx_pkts != hw->inject_pkts))
 		return nb_tx;
@@ -1864,6 +1857,10 @@ virtio_xmit_pkts_packed(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_p
 
 	if (nb_pkts > vq->vq_free_cnt)
 		virtio_xmit_cleanup_packed(vq, nb_pkts - vq->vq_free_cnt);
+
+	vq->head_idx = vq->vq_avail_idx;
+	head_flags = tx_pkts[nb_tx]->next ? VRING_DESC_F_NEXT: 0;
+	head_flags |= vq->avail_used_flags;
 
 	for (nb_tx = 0; nb_tx < nb_pkts; nb_tx++) {
 		struct rte_mbuf *txm = tx_pkts[nb_tx];
@@ -1899,7 +1896,7 @@ virtio_xmit_pkts_packed(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_p
 		/* Positive value indicates it need free vring descriptors */
 		if (unlikely(need > 0)) {
 			virtio_rmb();
-			need = RTE_MIN(need, (int)nb_pkts);
+			need = RTE_MIN(need, (int)(nb_pkts-nb_tx));
 			virtio_xmit_cleanup_packed(vq, need);
 			need = slots - vq->vq_free_cnt;
 			if (unlikely(need > 0)) {
@@ -1919,6 +1916,7 @@ virtio_xmit_pkts_packed(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_p
 	txvq->stats.packets += nb_tx;
 
 	if (likely(nb_tx)) {
+		vq->ring_packed.desc_packed[vq->head_idx].flags = head_flags;
 		if (unlikely(virtqueue_kick_prepare_packed(vq))) {
 			virtqueue_notify(vq);
 			PMD_TX_LOG(DEBUG, "Notified backend after xmit");
