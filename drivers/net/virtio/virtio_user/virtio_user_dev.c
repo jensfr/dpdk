@@ -468,10 +468,14 @@ virtio_user_dev_init(struct virtio_user_dev *dev, char *path, int queues,
 	if (!in_order)
 		dev->unsupported_features |= (1ull << VIRTIO_F_IN_ORDER);
 
-	if (packed_vq)
+	if (packed_vq) {
+		if (cq)
+			rte_exit(EXIT_FAILURE,
+				"control vq not supported with packed virtqueues\n");
 		dev->device_features |= (1ull << VIRTIO_F_RING_PACKED);
-	else
+	} else {
 		dev->device_features &= ~(1ull << VIRTIO_F_RING_PACKED);
+	}
 
 	if (dev->mac_specified) {
 		dev->device_features |= (1ull << VIRTIO_NET_F_MAC);
