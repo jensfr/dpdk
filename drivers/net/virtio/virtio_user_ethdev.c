@@ -271,10 +271,36 @@ virtio_user_get_queue_num(struct virtio_hw *hw, uint16_t queue_id __rte_unused)
 	return dev->queue_size;
 }
 
-static int
-virtio_user_setup_queue(struct virtio_hw *hw, struct virtqueue *vq)
+static void
+virtio_user_setup_queue_packed(struct virtqueue *vq,
+			       struct virtio_user_dev *dev)
+
 {
-	struct virtio_user_dev *dev = virtio_user_get_dev(hw);
+	uint16_t queue_idx = vq->vq_queue_index;
+	uint64_t desc_addr;
+	uint64_t avail_addr;
+	uint64_t used_addr;
+
+	desc_addr = (uintptr_t)vq->vq_ring_virt_mem;
+	avail_addr = desc_addr + vq->vq_nentries *
+		sizeof(struct vring_packed_desc);
+	used_addr = RTE_ALIGN_CEIL(avail_addr +
+			   sizeof(struct vring_packed_desc_event),
+			   VIRTIO_PCI_VRING_ALIGN);
+	dev->packed_vrings[queue_idx].num = vq->vq_nentries;
+	dev->packed_vrings[queue_idx].desc_packed =
+		(void *)(uintptr_t)desc_addr;
+	dev->packed_vrings[queue_idx].driver_event =
+		(void *)(uintptr_t)avail_addr;
+	dev->packed_vrings[queue_idx].device_event =
+		(void*)(uintptr_t)used_addr;
+	vq->avail_wrap_counter = true;
+	vq->used_wrap_counter = true;
+}
+
+static void
+virtio_user_setup_queue_split(struct virtqueue *vq,struct virtio_user_dev *dev)
+{
 	uint16_t queue_idx = vq->vq_queue_index;
 	uint64_t desc_addr, avail_addr, used_addr;
 
@@ -288,6 +314,18 @@ virtio_user_setup_queue(struct virtio_hw *hw, struct virtqueue *vq)
 	dev->vrings[queue_idx].desc = (void *)(uintptr_t)desc_addr;
 	dev->vrings[queue_idx].avail = (void *)(uintptr_t)avail_addr;
 	dev->vrings[queue_idx].used = (void *)(uintptr_t)used_addr;
+
+
+}
+static int
+virtio_user_setup_queue(struct virtio_hw *hw, struct virtqueue *vq)
+{
+	struct virtio_user_dev *dev = virtio_user_get_dev(hw);
+
+	if (vtpci_packed_queue(hw))
+		virtio_user_setup_queue_packed(vq, dev);
+	else
+		virtio_user_setup_queue_split(vq, dev);
 
 	return 0;
 }
@@ -317,7 +355,10 @@ virtio_user_notify_queue(struct virtio_hw *hw, struct virtqueue *vq)
 	struct virtio_user_dev *dev = virtio_user_get_dev(hw);
 
 	if (hw->cvq && (hw->cvq->vq == vq)) {
-		virtio_user_handle_cq(dev, vq->vq_queue_index);
+		if (vtpci_packed_queue(vq->hw))
+			virtio_user_handle_cq_packed(dev, vq->vq_queue_index, vq);
+		else
+			virtio_user_handle_cq(dev, vq->vq_queue_index);
 		return;
 	}
 
