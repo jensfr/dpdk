@@ -43,14 +43,25 @@ virtio_user_kick_queue(struct virtio_user_dev *dev, uint32_t queue_sel)
 	struct vhost_vring_file file;
 	struct vhost_vring_state state;
 	struct vring *vring = &dev->vrings[queue_sel];
+	struct vring_packed *pq_vring = &dev->packed_vrings[queue_sel];
 	struct vhost_vring_addr addr = {
 		.index = queue_sel,
-		.desc_user_addr = (uint64_t)(uintptr_t)vring->desc,
-		.avail_user_addr = (uint64_t)(uintptr_t)vring->avail,
-		.used_user_addr = (uint64_t)(uintptr_t)vring->used,
 		.log_guest_addr = 0,
 		.flags = 0, /* disable log */
 	};
+
+	if (dev->features & (1ULL << VIRTIO_F_RING_PACKED)) {
+		addr.desc_user_addr =
+			(uint64_t)(uintptr_t)pq_vring->desc_packed;
+		addr.avail_user_addr =
+			(uint64_t)(uintptr_t)pq_vring->driver_event;
+		addr.used_user_addr =
+			(uint64_t)(uintptr_t)pq_vring->device_event;
+	} else {
+		addr.desc_user_addr = (uint64_t)(uintptr_t)vring->desc;
+		addr.avail_user_addr = (uint64_t)(uintptr_t)vring->avail;
+		addr.used_user_addr = (uint64_t)(uintptr_t)vring->used;
+	}
 
 	state.index = queue_sel;
 	state.num = vring->num;

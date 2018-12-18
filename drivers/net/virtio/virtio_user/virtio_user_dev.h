@@ -11,6 +11,8 @@
 #include "../virtio_ring.h"
 #include "vhost.h"
 
+
+
 struct virtio_user_dev {
 	/* for vhost_user backend */
 	int		vhostfd;
@@ -39,7 +41,11 @@ struct virtio_user_dev {
 	uint16_t	port_id;
 	uint8_t		mac_addr[ETHER_ADDR_LEN];
 	char		path[PATH_MAX];
-	struct vring	vrings[VIRTIO_MAX_VIRTQUEUES];
+	union {
+		struct vring		vrings[VIRTIO_MAX_VIRTQUEUES];
+		struct vring_packed	packed_vrings[VIRTIO_MAX_VIRTQUEUES];
+	};
+
 	struct virtio_user_backend_ops *ops;
 	pthread_mutex_t	mutex;
 	bool		started;
