@@ -11,6 +11,12 @@
 #include "../virtio_ring.h"
 #include "vhost.h"
 
+struct virtio_user_queue {
+	struct vq_desc_extra *desc_extra;
+	uint16_t avail_idx, used_idx;
+	uint16_t used_wrap_counter;
+	uint16_t avail_wrap_counter;
+};
 
 
 struct virtio_user_dev {

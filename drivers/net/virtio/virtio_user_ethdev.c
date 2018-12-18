@@ -277,6 +277,7 @@ virtio_user_setup_queue(struct virtio_hw *hw, struct virtqueue *vq)
 	struct virtio_user_dev *dev = virtio_user_get_dev(hw);
 	uint16_t queue_idx = vq->vq_queue_index;
 	uint64_t desc_addr, avail_addr, used_addr;
+	struct virtio_user_queue *vq_user = &dev->queues[queue_idx];
 
 	if (vtpci_packed_queue(hw)) {
 		desc_addr = (uintptr_t)vq->vq_ring_virt_mem;
@@ -291,7 +292,14 @@ virtio_user_setup_queue(struct virtio_hw *hw, struct virtqueue *vq)
 		dev->packed_vrings[queue_idx].driver_event =
 			(void *)(uintptr_t)avail_addr;
 		dev->packed_vrings[queue_idx].device_event =
-			(void *)(uintptr_t)used_addr;
+			(void*)(uintptr_t)used_addr;
+		vq_user->desc_extra = (struct vq_desc_extra *) rte_zmalloc(NULL,
+					vq->vq_nentries * sizeof(struct vq_desc_extra),
+					0);
+		if (vq_user->desc_extra == NULL) {
+			PMD_INIT_LOG(ERR, "malloc vq_desc_extra failed");
+			return -1;
+		}
 		return 0;
 	}
 
