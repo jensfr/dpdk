@@ -60,6 +60,12 @@ New Features
   * Added the handler to get firmware version string.
   * Added support for multicast filtering.
 
+* **Added support for SW-assisted VDPA live migration.**
+
+  This SW-assisted VDPA live migration facility helps VDPA devices without
+  logging capability to perform live migration, a mediated SW relay can help
+  devices to track dirty pages caused by DMA. IFC driver has enabled this
+  SW-assisted live migration mode.
 
 Removed Items
 -------------
