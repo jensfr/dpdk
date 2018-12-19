@@ -300,6 +300,8 @@ virtio_user_setup_queue(struct virtio_hw *hw, struct virtqueue *vq)
 			PMD_INIT_LOG(ERR, "malloc vq_desc_extra failed");
 			return -1;
 		}
+		vq_user->avail_wrap_counter = true;
+		vq_user->used_wrap_counter = true;
 		return 0;
 	}
 
