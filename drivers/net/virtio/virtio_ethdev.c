@@ -153,6 +153,7 @@ virtio_pq_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
 	uint16_t flags;
 	int sum = 0;
 	int k;
+	int ndescs = 0;
 
 	/*
 	 * Format is enforced in qemu code:
@@ -162,7 +163,6 @@ virtio_pq_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
 	 */
 	head = vq->vq_avail_idx;
 	wrap_counter = vq->avail_wrap_counter;
-	desc[head].flags = VRING_DESC_F_NEXT;
 	desc[head].addr = cvq->virtio_net_hdr_mem;
 	desc[head].len = sizeof(struct virtio_net_ctrl_hdr);
 	vq->vq_free_cnt--;
@@ -170,6 +170,7 @@ virtio_pq_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
 		vq->vq_avail_idx -= vq->vq_nentries;
 		vq->avail_wrap_counter ^= 1;
 	}
+	ndescs++;
 
 	for (k = 0; k < pkt_num; k++) {
 		desc[vq->vq_avail_idx].addr = cvq->virtio_net_hdr_mem
@@ -188,6 +189,7 @@ virtio_pq_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
 			vq->vq_avail_idx -= vq->vq_nentries;
 			vq->avail_wrap_counter ^= 1;
 		}
+		ndescs++;
 	}
 
 
@@ -198,6 +200,7 @@ virtio_pq_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
 	flags |= VRING_DESC_F_AVAIL(vq->avail_wrap_counter) |
 		 VRING_DESC_F_USED(!vq->avail_wrap_counter);
 	desc[vq->vq_avail_idx].flags = flags;
+
 	flags = VRING_DESC_F_NEXT;
 	flags |= VRING_DESC_F_AVAIL(wrap_counter) |
 		 VRING_DESC_F_USED(!wrap_counter);
@@ -209,6 +212,7 @@ virtio_pq_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
 		vq->vq_avail_idx -= vq->vq_nentries;
 		vq->avail_wrap_counter ^= 1;
 	}
+	ndescs++;
 
 	virtqueue_notify(vq);
 
@@ -220,8 +224,9 @@ virtio_pq_send_command(struct virtnet_ctl *cvq, struct virtio_pmd_ctrl *ctrl,
 
 	/* now get used descriptors */
 	while (desc_is_used(&desc[vq->vq_used_cons_idx], vq)) {
-		vq->vq_free_cnt++;
-		if (++vq->vq_used_cons_idx >= vq->vq_nentries) {
+		vq->vq_free_cnt += ndescs;
+		vq->vq_used_cons_idx += ndescs;
+		if (vq->vq_used_cons_idx >= vq->vq_nentries) {
 			vq->vq_used_cons_idx -= vq->vq_nentries;
 			vq->used_wrap_counter ^= 1;
 		}

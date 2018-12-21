@@ -293,13 +293,6 @@ virtio_user_setup_queue(struct virtio_hw *hw, struct virtqueue *vq)
 			(void *)(uintptr_t)avail_addr;
 		dev->packed_vrings[queue_idx].device_event =
 			(void*)(uintptr_t)used_addr;
-		vq_user->desc_extra = (struct vq_desc_extra *) rte_zmalloc(NULL,
-					vq->vq_nentries * sizeof(struct vq_desc_extra),
-					0);
-		if (vq_user->desc_extra == NULL) {
-			PMD_INIT_LOG(ERR, "malloc vq_desc_extra failed");
-			return -1;
-		}
 		vq_user->avail_wrap_counter = true;
 		vq_user->used_wrap_counter = true;
 		return 0;

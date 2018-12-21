@@ -645,23 +645,21 @@ desc_is_avail(struct vring_packed_desc *desc, bool wrap_counter)
 
 static uint32_t
 virtio_user_handle_ctrl_msg_pq(struct virtio_user_dev *dev,
-			    struct virtio_user_queue *vq,
 			    struct vring_packed *vring,
-			    uint16_t id_hdr)
+			    uint16_t idx_hdr)
 {
 	struct virtio_net_ctrl_hdr *hdr;
 	virtio_net_ctrl_ack status = ~0;
 	uint16_t i, idx_data, idx_status;
 	uint32_t n_descs = 0;
-	struct vq_desc_extra *dxp = &vq->desc_extra[id_hdr];
 
 	/* locate desc for header, data, and status */
-	idx_data = dxp->next;
+	idx_data = idx_hdr + 1;
 	n_descs++;
 
 	i = idx_data;
-	while (vq->desc_extra[i].next) {
-		i = vq->desc_extra[i].next;
+	while (vring->desc_packed[i].flags & VRING_DESC_F_NEXT) {
+		i++;
 		n_descs++;
 	}
 
@@ -669,7 +667,7 @@ virtio_user_handle_ctrl_msg_pq(struct virtio_user_dev *dev,
 	idx_status = i;
 	n_descs++;
 
-	hdr = (void *)(uintptr_t)vring->desc_packed[id_hdr].addr;
+	hdr = (void *)(uintptr_t)vring->desc_packed[idx_hdr].addr;
 	if (hdr->class == VIRTIO_NET_CTRL_MQ &&
 	    hdr->cmd == VIRTIO_NET_CTRL_MQ_VQ_PAIRS_SET) {
 		uint16_t queues;
@@ -689,23 +687,25 @@ virtio_user_handle_cq_packed(struct virtio_user_dev *dev, uint16_t queue_idx)
 {
 	struct virtio_user_queue *vq = &dev->queues[queue_idx];
 	struct vring_packed *vring = &dev->packed_vrings[queue_idx];
-	uint16_t avail_idx, id, n_descs;
+	uint16_t id, n_descs;
 
 	while (desc_is_avail(&vring->desc_packed[vq->used_idx],
 			     vq->avail_wrap_counter)) {
-		avail_idx = vq->avail_idx;
-		id = vring->desc_packed[avail_idx].id;
+		id = vring->desc_packed[vq->used_idx].id;
 
-		n_descs = virtio_user_handle_ctrl_msg_pq(dev, vq, vring, id);
+		n_descs = virtio_user_handle_ctrl_msg_pq(dev, vring, id);
 
-		vring->desc_packed[avail_idx].len = n_descs;
-		vring->desc_packed[avail_idx].id = avail_idx;
-		set_desc_used(vq, &vring->desc_packed[avail_idx]);
-		if (++vq->used_idx >= dev->queue_size) {
+		vring->desc_packed[vq->used_idx].len = n_descs;
+		vring->desc_packed[vq->used_idx].id = vq->used_idx;
+		vq->used_idx += n_descs;
+		if (vq->used_idx >= dev->queue_size) {
 			vq->used_idx -= dev->queue_size;
-			vq->avail_wrap_counter ^= 1;
+			vq->used_wrap_counter ^= 1;
 		}
 	}
+	set_desc_used(vq, &vring->desc_packed[vq->avail_idx]);
+
+	vq->avail_idx = vq->used_idx;
 }
 
 void
