@@ -2351,6 +2351,19 @@ virtio_dev_info_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 	if ((host_features & tso_mask) == tso_mask)
 		dev_info->rx_offload_capa |= DEV_RX_OFFLOAD_TCP_LRO;
 
+	if (host_features & (1ULL << VIRTIO_NET_F_MTU)) {
+		struct virtio_net_config config;
+		vtpci_read_dev_config(hw,
+				offsetof(struct virtio_net_config, mtu),
+				&config.mtu, sizeof(config.mtu));
+		if (dev->data->dev_conf.rxmode.max_rx_pkt_len <= config.mtu)
+			dev_info->rx_offload_capa |= DEV_RX_OFFLOAD_JUMBO_FRAME;
+		else
+			dev_info->rx_offload_capa &= ~DEV_RX_OFFLOAD_JUMBO_FRAME;
+	} else {
+		dev_info->rx_offload_capa |= DEV_RX_OFFLOAD_JUMBO_FRAME;
+	}
+
 	dev_info->tx_offload_capa = DEV_TX_OFFLOAD_MULTI_SEGS |
 				    DEV_TX_OFFLOAD_VLAN_INSERT;
 	if (host_features & (1ULL << VIRTIO_NET_F_CSUM)) {
