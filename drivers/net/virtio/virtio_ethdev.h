@@ -112,4 +112,6 @@ void virtio_dev_resume(struct rte_eth_dev *dev);
 int virtio_inject_pkts(struct rte_eth_dev *dev, struct rte_mbuf **tx_pkts,
 		int nb_pkts);
 
+int     virtio_vf_add(struct rte_eth_dev *dev, struct virtio_hw *hw); 
+
 #endif /* _VIRTIO_ETHDEV_H_ */

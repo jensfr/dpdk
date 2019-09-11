@@ -266,6 +266,10 @@ struct virtio_hw {
 	rte_spinlock_t state_lock;
 	struct rte_mbuf **inject_pkts;
 	bool        opened;
+	rte_spinlock_t vf_lock;
+	uint16_t    vf_port;
+	struct rte_intr_handle vf_intr;
+	struct rte_eth_dev_owner owner;
 
 	struct virtqueue **vqs;
 };

@@ -1902,6 +1902,8 @@ eth_virtio_dev_init(struct rte_eth_dev *eth_dev)
 
 	hw->opened = true;
 
+	ret = virtio_vf_add(eth_dev, hw);
+
 	return 0;
 
 err_virtio_init:

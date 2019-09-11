@@ -30,6 +30,7 @@ SRCS-$(CONFIG_RTE_LIBRTE_VIRTIO_PMD) += virtio_pci.c
 SRCS-$(CONFIG_RTE_LIBRTE_VIRTIO_PMD) += virtio_rxtx.c
 SRCS-$(CONFIG_RTE_LIBRTE_VIRTIO_PMD) += virtio_ethdev.c
 SRCS-$(CONFIG_RTE_LIBRTE_VIRTIO_PMD) += virtio_rxtx_simple.c
+SRCS-$(CONFIG_RTE_LIBRTE_VIRTIO_PMD) += virtio_failover.c
 
 ifeq ($(CONFIG_RTE_ARCH_X86),y)
 SRCS-$(CONFIG_RTE_LIBRTE_VIRTIO_PMD) += virtio_rxtx_simple_sse.c
